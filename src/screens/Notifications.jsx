@@ -103,7 +103,11 @@ function Notifications() {
         meta = { targetType: 'all', userIds: allIds }
       }
 
-      const { error: insertErr } = await supabase.from('notifications').insert(rowsToInsert)
+      const { data: insertedNotifications, error: insertErr } = await supabase
+        .from('notifications')
+        .insert(rowsToInsert)
+        .select()
+
       if (insertErr) {
         // Provide clearer guidance if RLS blocks insert
         if (/row-level security/i.test(insertErr.message)) {
@@ -112,6 +116,10 @@ function Notifications() {
         throw insertErr
       }
 
+      // Notifications will be sent automatically via database webhook trigger
+      // The webhook triggers the send-notification edge function on INSERT
+      
+      alert('Notification(s) created successfully! They will be sent automatically.')
       resetForm()
       fetchData()
     } catch (e) {
