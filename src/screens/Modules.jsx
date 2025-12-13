@@ -8,11 +8,14 @@ function Modules() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addModuleModalOpen, setAddModuleModalOpen] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [editingModuleId, setEditingModuleId] = useState(null)
   const [uploadVideoModalOpen, setUploadVideoModalOpen] = useState(false)
   const [selectedModule, setSelectedModule] = useState(null)
   const [categoryFilter, setCategoryFilter] = useState('All Categories')
   const [modules, setModules] = useState([])
   const [categories, setCategories] = useState([])
+  const [departments, setDepartments] = useState([])
   const [videos, setVideos] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingVideos, setLoadingVideos] = useState(false)
@@ -21,9 +24,14 @@ function Modules() {
     title: '',
     description: '',
     category_id: '',
-    thumbnail_url: ''
+    thumbnail_url: '',
+    is_locked: false,
+    requires_approval: false,
+    access_type: 'open',
+    department_ids: []
   })
   const [searchTerm, setSearchTerm] = useState('')
+  const [departmentSearch, setDepartmentSearch] = useState('')
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen)
@@ -37,6 +45,7 @@ function Modules() {
   // Fetch modules and categories from Supabase
   useEffect(() => {
     fetchCategories()
+    fetchDepartments()
     fetchModules()
   }, [])
 
@@ -53,6 +62,21 @@ function Modules() {
     } catch (error) {
       console.error('Error fetching categories:', error)
       // Don't set error state here, just log it
+    }
+  }
+
+  const fetchDepartments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('departments')
+        .select('*')
+        .order('department_name', { ascending: true })
+
+      if (error) throw error
+
+      setDepartments(data || [])
+    } catch (error) {
+      console.error('Error fetching departments:', error)
     }
   }
 
@@ -97,35 +121,140 @@ function Modules() {
         return
       }
 
+      // Validate department access for department type
+      if (formData.access_type === 'department' && formData.department_ids.length === 0) {
+        alert('Please select at least one department for department-based access')
+        return
+      }
+
       setError(null)
 
-      const { data, error } = await supabase
-        .from('modules')
-        .insert([{
-          title: formData.title,
-          description: formData.description || null,
-          category_id: formData.category_id || null,
-          thumbnail_url: formData.thumbnail_url || null
-        }])
-        .select()
+      if (editMode) {
+        // Update existing module
+        const { error: moduleError } = await supabase
+          .from('modules')
+          .update({
+            title: formData.title,
+            description: formData.description || null,
+            category_id: formData.category_id || null,
+            thumbnail_url: formData.thumbnail_url || null,
+            is_locked: formData.is_locked,
+            requires_approval: formData.requires_approval,
+            access_type: formData.access_type
+          })
+          .eq('id', editingModuleId)
 
-      if (error) throw error
+        if (moduleError) throw moduleError
+
+        // Delete old department access
+        await supabase
+          .from('module_department_access')
+          .delete()
+          .eq('module_id', editingModuleId)
+
+        // Insert new department access if needed
+        if (formData.access_type === 'department' && formData.department_ids.length > 0) {
+          const departmentAccessRecords = formData.department_ids.map(deptId => ({
+            module_id: editingModuleId,
+            department_id: deptId
+          }))
+
+          const { error: deptAccessError } = await supabase
+            .from('module_department_access')
+            .insert(departmentAccessRecords)
+
+          if (deptAccessError) throw deptAccessError
+        }
+
+        alert('Module updated successfully!')
+      } else {
+        // Insert new module
+        const { data: moduleData, error: moduleError } = await supabase
+          .from('modules')
+          .insert([{
+            title: formData.title,
+            description: formData.description || null,
+            category_id: formData.category_id || null,
+            thumbnail_url: formData.thumbnail_url || null,
+            is_locked: formData.is_locked,
+            requires_approval: formData.requires_approval,
+            access_type: formData.access_type
+          }])
+          .select()
+          .single()
+
+        if (moduleError) throw moduleError
+
+        // Insert department access if access_type is 'department'
+        if (formData.access_type === 'department' && formData.department_ids.length > 0) {
+          const departmentAccessRecords = formData.department_ids.map(deptId => ({
+            module_id: moduleData.id,
+            department_id: deptId
+          }))
+
+          const { error: deptAccessError } = await supabase
+            .from('module_department_access')
+            .insert(departmentAccessRecords)
+
+          if (deptAccessError) throw deptAccessError
+        }
+
+        alert('Module added successfully!')
+      }
 
       // Close modal and refresh list
       setAddModuleModalOpen(false)
+      setEditMode(false)
+      setEditingModuleId(null)
+      setDepartmentSearch('')
       setFormData({
         title: '',
         description: '',
         category_id: '',
-        thumbnail_url: ''
+        thumbnail_url: '',
+        is_locked: false,
+        requires_approval: false,
+        access_type: 'open',
+        department_ids: []
       })
       await fetchModules()
-      
-      alert('Module added successfully!')
     } catch (error) {
-      console.error('Error adding module:', error)
-      setError(error.message || 'Failed to add module. Please try again.')
-      alert('Failed to add module: ' + (error.message || 'Unknown error'))
+      console.error('Error saving module:', error)
+      setError(error.message || 'Failed to save module. Please try again.')
+      alert('Failed to save module: ' + (error.message || 'Unknown error'))
+    }
+  }
+
+  const handleEditModule = async (module, e) => {
+    e.stopPropagation()
+    
+    try {
+      // Fetch department access for this module
+      const { data: deptAccess, error: deptError } = await supabase
+        .from('module_department_access')
+        .select('department_id')
+        .eq('module_id', module.id)
+
+      if (deptError) throw deptError
+
+      // Set form data with module details
+      setFormData({
+        title: module.title,
+        description: module.description || '',
+        category_id: module.category_id || '',
+        thumbnail_url: module.thumbnail_url || '',
+        is_locked: module.is_locked || false,
+        requires_approval: module.requires_approval || false,
+        access_type: module.access_type || 'open',
+        department_ids: deptAccess ? deptAccess.map(d => d.department_id) : []
+      })
+      
+      setEditMode(true)
+      setEditingModuleId(module.id)
+      setAddModuleModalOpen(true)
+    } catch (error) {
+      console.error('Error loading module for edit:', error)
+      alert('Failed to load module details: ' + (error.message || 'Unknown error'))
     }
   }
 
@@ -324,10 +453,10 @@ function Modules() {
                         <td>{module.categories?.name || getCategoryName(module.category_id)}</td>
                         <td>{formatDate(module.created_at)}</td>
                         <td className="text-right">
-                          <button className="action-btn edit-btn" onClick={(e) => { e.stopPropagation(); }}>
+                          <button className="action-btn edit-btn" onClick={(e) => handleEditModule(module, e)} title="Edit Module">
                             <i className="fa-solid fa-pencil"></i>
                           </button>
-                          <button className="action-btn delete-btn" onClick={(e) => handleDeleteModule(module.id, e)}>
+                          <button className="action-btn delete-btn" onClick={(e) => handleDeleteModule(module.id, e)} title="Delete Module">
                             <i className="fa-solid fa-trash"></i>
                           </button>
                         </td>
@@ -419,13 +548,23 @@ function Modules() {
         </div>
       </aside>
 
-      {/* Add Module Modal */}
+      {/* Add/Edit Module Modal */}
       {addModuleModalOpen && (
-        <div className="modal-backdrop" onClick={() => setAddModuleModalOpen(false)}>
+        <div className="modal-backdrop" onClick={() => {
+          setAddModuleModalOpen(false)
+          setEditMode(false)
+          setEditingModuleId(null)
+          setDepartmentSearch('')
+        }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Add New Module</h3>
-              <button onClick={() => setAddModuleModalOpen(false)}>
+              <h3>{editMode ? 'Edit Module' : 'Add New Module'}</h3>
+              <button onClick={() => {
+                setAddModuleModalOpen(false)
+                setEditMode(false)
+                setEditingModuleId(null)
+                setDepartmentSearch('')
+              }}>
                 <i className="fa-solid fa-xmark"></i>
               </button>
             </div>
@@ -480,18 +619,206 @@ function Modules() {
                   Enter the URL of the thumbnail image
                 </p>
               </div>
+
+              {/* Access Control Section */}
+              <div className="access-control-section">
+                <div className="form-group">
+                  <label htmlFor="access-type" style={{ 
+                    textTransform: 'uppercase', 
+                    fontSize: '11px', 
+                    fontWeight: '600',
+                    color: '#6B7280',
+                    letterSpacing: '0.5px',
+                    marginBottom: '8px'
+                  }}>Access Type</label>
+                  <select 
+                    id="access-type"
+                    value={formData.access_type}
+                    onChange={(e) => setFormData({ ...formData, access_type: e.target.value, department_ids: [] })}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="open">Open - All users can access</option>
+                    <option value="department">Department - Specific departments only</option>
+                    <option value="restricted">Restricted - Request required</option>
+                  </select>
+                  <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '6px', lineHeight: '1.4' }}>
+                    {formData.access_type === 'open' && 'Module is accessible to all users'}
+                    {formData.access_type === 'department' && 'Only users from selected departments can access'}
+                    {formData.access_type === 'restricted' && 'Users must request access to view this module'}
+                  </p>
+                </div>
+
+                {formData.access_type === 'department' && (
+                  <div className="form-group">
+                    <label style={{ 
+                      textTransform: 'uppercase', 
+                      fontSize: '11px', 
+                      fontWeight: '600',
+                      color: '#6B7280',
+                      letterSpacing: '0.5px',
+                      marginBottom: '8px',
+                      display: 'block'
+                    }}>Select Departments</label>
+                    
+                    {/* Department Search */}
+                    <div style={{ 
+                      position: 'relative', 
+                      marginBottom: '8px' 
+                    }}>
+                      <i className="fa-solid fa-magnifying-glass" style={{
+                        position: 'absolute',
+                        left: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: '#9CA3AF',
+                        fontSize: '13px',
+                        pointerEvents: 'none'
+                      }}></i>
+                      <input
+                        type="text"
+                        placeholder="Search departments..."
+                        value={departmentSearch}
+                        onChange={(e) => setDepartmentSearch(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px 8px 36px',
+                          fontSize: '13px',
+                          border: '1px solid #E5E7EB',
+                          borderRadius: '6px',
+                          outline: 'none',
+                          transition: 'border-color 0.2s'
+                        }}
+                        onFocus={(e) => e.target.style.borderColor = '#4F46E5'}
+                        onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                      />
+                    </div>
+
+                    <div className="department-checkboxes">
+                      {departments
+                        .filter(dept => 
+                          dept.department_name.toLowerCase().includes(departmentSearch.toLowerCase())
+                        )
+                        .map(dept => (
+                        <div key={dept.id} className="department-checkbox-item">
+                          <label>
+                            <input 
+                              type="checkbox"
+                              checked={formData.department_ids.includes(dept.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData({ 
+                                    ...formData, 
+                                    department_ids: [...formData.department_ids, dept.id] 
+                                  })
+                                } else {
+                                  setFormData({ 
+                                    ...formData, 
+                                    department_ids: formData.department_ids.filter(id => id !== dept.id) 
+                                  })
+                                }
+                              }}
+                            />
+                            <span>{dept.department_name}</span>
+                          </label>
+                        </div>
+                      ))}
+                      {departments.filter(dept => 
+                        dept.department_name.toLowerCase().includes(departmentSearch.toLowerCase())
+                      ).length === 0 && (
+                        <div style={{
+                          padding: '20px',
+                          textAlign: 'center',
+                          color: '#9CA3AF',
+                          fontSize: '13px'
+                        }}>
+                          <i className="fa-solid fa-search" style={{ 
+                            fontSize: '24px', 
+                            marginBottom: '8px',
+                            display: 'block',
+                            opacity: 0.5
+                          }}></i>
+                          No departments found
+                        </div>
+                      )}
+                    </div>
+                    <p style={{ 
+                      fontSize: '13px', 
+                      color: formData.department_ids.length > 0 ? '#059669' : '#6B7280',
+                      fontWeight: formData.department_ids.length > 0 ? '600' : '400',
+                      marginTop: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      {formData.department_ids.length > 0 && (
+                        <i className="fa-solid fa-check-circle" style={{ fontSize: '14px' }}></i>
+                      )}
+                      {formData.department_ids.length} department(s) selected
+                    </p>
+                  </div>
+                )}
+
+                <div className="access-options">
+                  <div className="access-option-item">
+                    <div className="option-header">
+                      <label className="checkbox-label">
+                        <input 
+                          type="checkbox"
+                          checked={formData.is_locked}
+                          onChange={(e) => setFormData({ ...formData, is_locked: e.target.checked })}
+                        />
+                        <span className="option-icon">
+                          <i className="fa-solid fa-lock"></i>
+                        </span>
+                        <span className="option-title">Lock This Module</span>
+                      </label>
+                    </div>
+                    <p className="option-description">
+                      When locked, access control rules will be enforced
+                    </p>
+                  </div>
+
+                  <div className="access-option-item">
+                    <div className="option-header">
+                      <label className="checkbox-label">
+                        <input 
+                          type="checkbox"
+                          checked={formData.requires_approval}
+                          onChange={(e) => setFormData({ ...formData, requires_approval: e.target.checked })}
+                        />
+                        <span className="option-icon">
+                          <i className="fa-solid fa-user-check"></i>
+                        </span>
+                        <span className="option-title">Require Approval for Access</span>
+                      </label>
+                    </div>
+                    <p className="option-description">
+                      Users must request and receive admin approval to access this module
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => {
                 setAddModuleModalOpen(false)
+                setEditMode(false)
+                setEditingModuleId(null)
+                setDepartmentSearch('')
                 setFormData({
                   title: '',
                   description: '',
                   category_id: '',
-                  thumbnail_url: ''
+                  thumbnail_url: '',
+                  is_locked: false,
+                  requires_approval: false,
+                  access_type: 'open',
+                  department_ids: []
                 })
               }}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleAddModule}>Save Module</button>
+              <button className="btn btn-primary" onClick={handleAddModule}>
+                {editMode ? 'Update Module' : 'Save Module'}
+              </button>
             </div>
           </div>
         </div>

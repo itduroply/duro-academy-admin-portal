@@ -3,6 +3,7 @@ import Login from './screens/Login'
 import ForgotPassword from './screens/ForgotPassword'
 import Dashboard from './screens/Dashboard'
 import Modules from './screens/Modules'
+import ModuleRequests from './screens/ModuleRequests'
 import Users from './screens/Users'
 import Banners from './screens/Banners'
 import Feedbacks from './screens/Feedbacks'
@@ -21,6 +22,7 @@ function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/modules" element={<ProtectedRoute><Modules /></ProtectedRoute>} />
+        <Route path="/module-requests" element={<ProtectedRoute><ModuleRequests /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
         <Route path="/banners" element={<ProtectedRoute><Banners /></ProtectedRoute>} />
         <Route path="/feedbacks" element={<ProtectedRoute><Feedbacks /></ProtectedRoute>} />

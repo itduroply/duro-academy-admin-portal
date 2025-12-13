@@ -58,6 +58,14 @@ function Sidebar() {
           </a>
           <a 
             href="#" 
+            className={`nav-link ${isActive('/module-requests')}`} 
+            onClick={(e) => { e.preventDefault(); navigate('/module-requests'); }}
+          >
+            <i className="fa-solid fa-user-check"></i>
+            Module Requests
+          </a>
+          <a 
+            href="#" 
             className={`nav-link ${isActive('/users')}`} 
             onClick={(e) => { e.preventDefault(); navigate('/users'); }}
           >
