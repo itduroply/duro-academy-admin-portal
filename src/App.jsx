@@ -1,35 +1,59 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
 import Login from './screens/Login'
 import ForgotPassword from './screens/ForgotPassword'
-import Dashboard from './screens/Dashboard'
-import Modules from './screens/Modules'
-import ModuleRequests from './screens/ModuleRequests'
-import Users from './screens/Users'
-import Banners from './screens/Banners'
-import Feedbacks from './screens/Feedbacks'
-import Assessments from './screens/Assessments'
-import Notifications from './screens/Notifications'
-import QuizBuilder from './screens/QuizBuilder'
 import ProtectedRoute from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
+
+// Lazy load heavy components to reduce initial bundle size
+const Dashboard = lazy(() => import('./screens/Dashboard'))
+const Modules = lazy(() => import('./screens/Modules'))
+const ModuleRequests = lazy(() => import('./screens/ModuleRequests'))
+const Users = lazy(() => import('./screens/Users'))
+const Banners = lazy(() => import('./screens/Banners'))
+const Feedbacks = lazy(() => import('./screens/Feedbacks'))
+const Assessments = lazy(() => import('./screens/Assessments'))
+const Notifications = lazy(() => import('./screens/Notifications'))
+const QuizBuilder = lazy(() => import('./screens/QuizBuilder'))
+const AssignmentResults = lazy(() => import('./screens/AssignmentResults'))
+
+// Loading fallback component
+const LoadingFallback = () => (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100vh',
+    fontSize: '18px',
+    color: '#6B7280'
+  }}>
+    <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: '8px' }}></i>
+    Loading...
+  </div>
+)
 
 function App() {
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL}>
       <Routes>
-        <Route path="/duro-academy-admin-portal" element={<Login />} />
+        {/* Root route redirect */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/modules" element={<ProtectedRoute><Modules /></ProtectedRoute>} />
-        <Route path="/module-requests" element={<ProtectedRoute><ModuleRequests /></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
-        <Route path="/banners" element={<ProtectedRoute><Banners /></ProtectedRoute>} />
-        <Route path="/feedbacks" element={<ProtectedRoute><Feedbacks /></ProtectedRoute>} />
-        <Route path="/assessments" element={<ProtectedRoute><Assessments /></ProtectedRoute>} />
-        <Route path="/quiz-builder" element={<ProtectedRoute><QuizBuilder /></ProtectedRoute>} />
-        <Route path="/quiz-builder/:id" element={<ProtectedRoute><QuizBuilder /></ProtectedRoute>} />
-        <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Dashboard /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/modules" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Modules /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/module-requests" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><ModuleRequests /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Users /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/banners" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Banners /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/feedbacks" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Feedbacks /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/assessments" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Assessments /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/quiz-builder" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><QuizBuilder /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/quiz-builder/:id" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><QuizBuilder /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/notifications" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Notifications /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        <Route path="/assignment-results" element={<ProtectedRoute><ErrorBoundary><Suspense fallback={<LoadingFallback />}><AssignmentResults /></Suspense></ErrorBoundary></ProtectedRoute>} />
+        {/* Catch-all route for 404s */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>
   )
