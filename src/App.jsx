@@ -34,8 +34,11 @@ const LoadingFallback = () => (
 )
 
 function App() {
+  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/'
+  const resolvedBase = baseUrl !== '/' && window.location.pathname.startsWith(baseUrl) ? baseUrl : '/'
+
   return (
-    <Router basename={import.meta.env.BASE_URL}>
+    <Router basename={resolvedBase}>
       <Routes>
         {/* Root route redirect */}
         <Route path="/" element={<Navigate to="/login" replace />} />
