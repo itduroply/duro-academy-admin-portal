@@ -3,7 +3,7 @@ import { lazy, Suspense } from 'react'
 import Login from './screens/Login'
 import ForgotPassword from './screens/ForgotPassword'
 import ProtectedRoute from './components/ProtectedRoute'
-import ErrorBoundary from './components/ErrorBoundary'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import './App.css'
 
 // Lazy load heavy components to reduce initial bundle size
