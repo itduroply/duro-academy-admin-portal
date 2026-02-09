@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import { supabase } from '../supabaseClient';
 import './Assessments.css';
 
-const Assessments = () => {
+function Assessments() {
+  const mountedRef = useRef(true);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filterModule, setFilterModule] = useState('All Modules');
@@ -28,9 +29,18 @@ const Assessments = () => {
 
   // Fetch quizzes, modules, and videos from Supabase
   useEffect(() => {
-    fetchModules();
-    fetchVideos();
-    fetchQuizzes();
+    mountedRef.current = true;
+    
+    const loadData = async () => {
+      await Promise.all([fetchModules(), fetchVideos(), fetchQuizzes()]);
+    };
+    
+    loadData();
+    
+    return () => {
+      mountedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchModules = async () => {

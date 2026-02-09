@@ -104,6 +104,14 @@ function Sidebar() {
             <i className="fa-solid fa-clipboard-question"></i>
             Assessments
           </a>
+          <a 
+            href="#" 
+            className={`nav-link ${isActive('/assignment-results')}`} 
+            onClick={(e) => { e.preventDefault(); navigate('/assignment-results'); }}
+          >
+            <i className="fa-solid fa-clipboard-list"></i>
+            Assignment Results
+          </a>
           <a href="#" className="nav-link" onClick={(e) => e.preventDefault()}>
             <i className="fa-solid fa-chart-line"></i>
             Analytics

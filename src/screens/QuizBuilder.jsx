@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
@@ -6,6 +6,7 @@ import { supabase } from '../supabaseClient';
 import './QuizBuilder.css';
 
 const QuizBuilder = () => {
+  const mountedRef = useRef(true);
   const { id } = useParams();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -43,11 +44,16 @@ const QuizBuilder = () => {
 
   // Fetch modules and videos on component mount
   useEffect(() => {
+    mountedRef.current = true;
     fetchModules();
     fetchVideos();
     if (id) {
       fetchQuizData(id);
     }
+    return () => {
+      mountedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchModules = async () => {

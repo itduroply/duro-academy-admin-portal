@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import './ModuleRequests.css'
 
 function ModuleRequests() {
+  const mountedRef = useRef(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('pending')
   const [requests, setRequests] = useState([])
@@ -23,7 +24,12 @@ function ModuleRequests() {
   }
 
   useEffect(() => {
+    mountedRef.current = true
     fetchRequests()
+    return () => {
+      mountedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   const fetchRequests = async () => {

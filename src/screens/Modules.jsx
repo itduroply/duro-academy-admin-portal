@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import './Modules.css'
 
 function Modules() {
+  const mountedRef = useRef(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addModuleModalOpen, setAddModuleModalOpen] = useState(false)
@@ -44,9 +45,18 @@ function Modules() {
 
   // Fetch modules and categories from Supabase
   useEffect(() => {
-    fetchCategories()
-    fetchDepartments()
-    fetchModules()
+    mountedRef.current = true
+    
+    const fetchData = async () => {
+      await Promise.all([fetchCategories(), fetchDepartments(), fetchModules()])
+    }
+    
+    fetchData()
+    
+    return () => {
+      mountedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchCategories = async () => {
@@ -58,7 +68,9 @@ function Modules() {
 
       if (error) throw error
 
-      setCategories(data || [])
+      if (mountedRef.current) {
+        setCategories(data || [])
+      }
     } catch (error) {
       console.error('Error fetching categories:', error)
       // Don't set error state here, just log it
@@ -74,7 +86,9 @@ function Modules() {
 
       if (error) throw error
 
-      setDepartments(data || [])
+      if (mountedRef.current) {
+        setDepartments(data || [])
+      }
     } catch (error) {
       console.error('Error fetching departments:', error)
     }
@@ -82,8 +96,10 @@ function Modules() {
 
   const fetchModules = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      if (mountedRef.current) {
+        setLoading(true)
+        setError(null)
+      }
       
       const { data, error } = await supabase
         .from('modules')
@@ -98,12 +114,18 @@ function Modules() {
 
       if (error) throw error
 
-      setModules(data || [])
+      if (mountedRef.current) {
+        setModules(data || [])
+      }
     } catch (error) {
       console.error('Error fetching modules:', error)
-      setError(error.message || 'Failed to fetch modules. Please check your connection.')
+      if (mountedRef.current) {
+        setError(error.message || 'Failed to fetch modules. Please check your connection.')
+      }
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 

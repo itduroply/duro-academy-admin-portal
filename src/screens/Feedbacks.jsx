@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import './Feedbacks.css'
 
 function Feedbacks() {
+  const mountedRef = useRef(true)
   const [feedbacks, setFeedbacks] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -21,7 +22,12 @@ function Feedbacks() {
   ]
 
   useEffect(() => {
+    mountedRef.current = true
     fetchFeedbacks()
+    return () => {
+      mountedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchFeedbacks = async () => {

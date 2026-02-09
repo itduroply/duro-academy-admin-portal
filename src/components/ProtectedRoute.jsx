@@ -30,7 +30,6 @@ function ProtectedRoute({ children }) {
         .single()
 
       if (error || !userData) {
-        console.error('Error fetching user role:', error)
         setIsAuthenticated(false)
         setLoading(false)
         return
@@ -45,7 +44,6 @@ function ProtectedRoute({ children }) {
         await supabase.auth.signOut()
       }
     } catch (error) {
-      console.error('Auth check error:', error)
       setIsAuthenticated(false)
     } finally {
       setLoading(false)
