@@ -91,16 +91,32 @@ function Users() {
     try {
       setLoading(true)
       
-      // Fetch users without joins for better performance
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(500) // Limit to prevent loading too many records
+      // Fetch users without joins for better performance (paginate to get all rows)
+      const pageSize = 1000
+      let page = 0
+      let allRows = []
+      let hasMore = true
 
-      if (error) {
-        throw error
+      while (hasMore) {
+        const from = page * pageSize
+        const to = from + pageSize - 1
+
+        const { data: pageRows, error } = await supabase
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, to)
+
+        if (error) {
+          throw error
+        }
+
+        allRows = allRows.concat(pageRows || [])
+        hasMore = (pageRows || []).length === pageSize
+        page += 1
       }
+
+      const data = allRows
       
       // Get unique designation and department IDs
       const designationIds = [...new Set(data?.map(u => u.designation_id).filter(Boolean))]
@@ -915,11 +931,16 @@ function Users() {
                   ) : (
                     users
                       .filter(user => {
-                        const matchesRole = roleFilter === 'All Roles' || user.role.toLowerCase() === roleFilter.toLowerCase()
-                        const matchesDepartment = departmentFilter === 'All Departments' || user.department === departmentFilter
-                        const matchesSearch = searchQuery === '' || 
-                          user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          user.email.toLowerCase().includes(searchQuery.toLowerCase())
+                        const roleValue = (user.role || '').toString().toLowerCase()
+                        const deptValue = (user.department || '').toString()
+                        const nameValue = (user.name || '').toString().toLowerCase()
+                        const emailValue = (user.email || '').toString().toLowerCase()
+                        const searchValue = searchQuery.toLowerCase()
+
+                        const matchesRole = roleFilter === 'All Roles' || roleValue === roleFilter.toLowerCase()
+                        const matchesDepartment = departmentFilter === 'All Departments' || deptValue === departmentFilter
+                        const matchesSearch = searchQuery === '' || nameValue.includes(searchValue) || emailValue.includes(searchValue)
+
                         return matchesRole && matchesDepartment && matchesSearch
                       })
                       .map(user => (
