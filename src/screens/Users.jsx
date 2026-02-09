@@ -943,6 +943,11 @@ function Users() {
 
                         return matchesRole && matchesDepartment && matchesSearch
                       })
+                      .sort((a, b) => {
+                        const nameA = (a.name || '').toString().toLowerCase()
+                        const nameB = (b.name || '').toString().toLowerCase()
+                        return nameA.localeCompare(nameB)
+                      })
                       .map(user => (
                       <tr key={user.id} className="user-row" onClick={() => openDrawer(user)}>
                         <td className="user-cell">
