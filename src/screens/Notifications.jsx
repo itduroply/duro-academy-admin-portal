@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import './Notifications.css'
 
 function Notifications() {
+  const mountedRef = useRef(true)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
@@ -27,7 +28,12 @@ function Notifications() {
   ]
 
   useEffect(() => {
+    mountedRef.current = true
     fetchData()
+    return () => {
+      mountedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchData = async () => {
@@ -56,7 +62,6 @@ function Notifications() {
       setNotifications(mapped)
       setUsers(userRows || [])
     } catch (e) {
-      console.error('Error loading notifications:', e)
       setError(e.message)
     } finally {
       setLoading(false)
@@ -123,7 +128,6 @@ function Notifications() {
       resetForm()
       fetchData()
     } catch (e) {
-      console.error('Send notification error:', e)
       setError(e.message)
     } finally {
       setSending(false)

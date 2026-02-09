@@ -1,15 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import { supabase } from '../supabaseClient';
 import './Banners.css';
 
 const Banners = () => {
+  const mountedRef = useRef(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [banners, setBanners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingBanner, setEditingBanner] = useState(null);
+  const [editingBannerId, setEditingBannerId] = useState(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -33,14 +35,19 @@ const Banners = () => {
   ];
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchBanners();
+    return () => {
+      mountedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    // Fetch options when redirect type changes
     if (formData.redirectType) {
       fetchRedirectOptions(formData.redirectType);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.redirectType]);
 
   const fetchBanners = async () => {
@@ -134,8 +141,10 @@ const Banners = () => {
   };
 
   const openModal = (banner = null) => {
+    console.log('openModal called with:', banner);
     if (banner) {
       setEditingBanner(banner);
+      setEditingBannerId(banner.id || null);
       setFormData({
         title: banner.title,
         redirectType: banner.redirect_type,
@@ -145,6 +154,9 @@ const Banners = () => {
         isActive: banner.is_active,
         displayOrder: banner.display_order
       });
+    } else {
+      setEditingBanner(null);
+      setEditingBannerId(null);
     }
     setIsModalOpen(true);
     setTimeout(() => {
@@ -157,6 +169,7 @@ const Banners = () => {
     setTimeout(() => {
       setIsModalOpen(false);
       setEditingBanner(null);
+      setEditingBannerId(null);
       setFormData({
         title: '',
         redirectType: '',
@@ -228,12 +241,7 @@ const Banners = () => {
     e.preventDefault();
 
     try {
-      // Validation
-      if (!formData.title.trim()) {
-        alert('Please enter a title');
-        return;
-      }
-
+      // Validation - title is now optional
       if (!formData.redirectType) {
         alert('Please select a redirect type');
         return;
@@ -259,24 +267,31 @@ const Banners = () => {
       }
 
       const bannerData = {
-        title: formData.title.trim(),
+        title: formData.title.trim() || null, // Allow null/empty title
         image_url: imageUrl,
         redirect_type: formData.redirectType,
         redirect_id: formData.redirectId,
         is_active: formData.isActive,
-        display_order: formData.displayOrder,
+        display_order: Number.isNaN(parseInt(formData.displayOrder, 10))
+          ? 0
+          : parseInt(formData.displayOrder, 10),
         updated_at: new Date().toISOString()
       };
 
       console.log('Saving banner data:', bannerData);
 
       if (editingBanner) {
+        if (!editingBannerId) {
+          console.error('Missing banner id for update', { editingBanner, editingBannerId });
+          alert('Cannot update this banner because its ID is missing. Please reload the page and try again.');
+          return;
+        }
         // Update existing banner
-        console.log('Updating banner:', editingBanner.id);
+        console.log('Updating banner:', editingBannerId);
         const { data, error } = await supabase
           .from('banners')
           .update(bannerData)
-          .eq('id', editingBanner.id);
+          .eq('id', editingBannerId);
 
         if (error) {
           console.error('Update error:', error);
@@ -344,6 +359,7 @@ const Banners = () => {
   };
 
   const editBanner = (banner) => {
+    console.log('editBanner called with:', banner);
     openModal(banner);
   };
 
@@ -372,7 +388,7 @@ const Banners = () => {
         <main className="banners-main">
             <div className="section-header">
               <h2 className="page-title">Banners</h2>
-              <button className="btn-primary" onClick={openModal}>
+              <button className="btn-primary" onClick={() => openModal(null)}>
                 <i className="fa-solid fa-plus"></i>
                 <span>Add Banner</span>
               </button>
@@ -398,7 +414,7 @@ const Banners = () => {
                     <div className="banner-image-container">
                       <img 
                         src={banner.image_url} 
-                        alt={banner.title}
+                        alt={banner.title || 'Banner'}
                         className="banner-image"
                       />
                       <div className="banner-overlay">
@@ -419,7 +435,7 @@ const Banners = () => {
                       </div>
                     </div>
                     <div className="banner-details">
-                      <h3 className="banner-title">{banner.title}</h3>
+                      <h3 className="banner-title">{banner.title || '(No Title)'}</h3>
                       <p className="banner-redirect">
                         <span className={`type-badge ${banner.redirect_type}`}>
                           {banner.redirect_type}
@@ -465,7 +481,7 @@ const Banners = () => {
             <div className="modal-body">
               <form onSubmit={handleSubmit} className="modal-form">
                 <div className="form-group">
-                  <label htmlFor="title" className="form-label">Banner Title *</label>
+                  <label htmlFor="title" className="form-label">Banner Title (Optional)</label>
                   <input 
                     type="text" 
                     id="title"
@@ -474,7 +490,6 @@ const Banners = () => {
                     onChange={handleInputChange}
                     placeholder="e.g., Summer Sale"
                     className="form-input"
-                    required
                   />
                 </div>
 

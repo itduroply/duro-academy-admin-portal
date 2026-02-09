@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import * as XLSX from 'xlsx'
 import './Users.css'
 
 function Users() {
+  const mountedRef = useRef(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addUserModalOpen, setAddUserModalOpen] = useState(false)
@@ -23,6 +25,10 @@ function Users() {
   const [subDepartments, setSubDepartments] = useState([])
   const [grades, setGrades] = useState([])
   const [designations, setDesignations] = useState([])
+  const [updatePassword, setUpdatePassword] = useState(false)
+  const [bulkUploadModalOpen, setBulkUploadModalOpen] = useState(false)
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const [bulkUploadResults, setBulkUploadResults] = useState(null)
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -61,37 +67,58 @@ function Users() {
 
   // Fetch users and organizational data from Supabase
   useEffect(() => {
-    console.log('Component mounted, fetching data...')
-    fetchUsers()
-    fetchRegions()
-    fetchBranches()
-    fetchSubBranches()
-    fetchDepartments()
-    fetchSubDepartments()
-    fetchGrades()
-    fetchDesignations()
+    mountedRef.current = true
+    
+    const fetchData = async () => {
+      // Only fetch essential data first - users, designations, and departments
+      // Other data can be loaded when needed (e.g., when opening add/edit modal)
+      await Promise.all([
+        fetchUsers(),
+        fetchDesignations(),
+        fetchDepartments()
+      ])
+    }
+    
+    fetchData()
+    
+    return () => {
+      mountedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchUsers = async () => {
     try {
       setLoading(true)
-      console.log('Fetching users from Supabase...')
       
+      // Fetch users without joins for better performance
       const { data, error } = await supabase
         .from('users')
-        .select(`
-          *,
-          designations(designation_name),
-          departments(department_name)
-        `)
+        .select('*')
         .order('created_at', { ascending: false })
-
-      console.log('Supabase response:', { data, error })
+        .limit(500) // Limit to prevent loading too many records
 
       if (error) {
-        console.error('Supabase error:', error)
         throw error
       }
+      
+      // Get unique designation and department IDs
+      const designationIds = [...new Set(data?.map(u => u.designation_id).filter(Boolean))]
+      const departmentIds = [...new Set(data?.map(u => u.department_id).filter(Boolean))]
+      
+      // Fetch designations and departments in parallel if there are any
+      const [designationsData, departmentsData] = await Promise.all([
+        designationIds.length > 0 
+          ? supabase.from('designations').select('id, designation_name').in('id', designationIds)
+          : Promise.resolve({ data: [] }),
+        departmentIds.length > 0
+          ? supabase.from('departments').select('id, department_name').in('id', departmentIds)
+          : Promise.resolve({ data: [] })
+      ])
+      
+      // Create lookup maps for faster access
+      const designationMap = new Map(designationsData.data?.map(d => [d.id, d.designation_name]) || [])
+      const departmentMap = new Map(departmentsData.data?.map(d => [d.id, d.department_name]) || [])
       
       // Transform data to match component expectations
       const transformedUsers = data?.map(user => ({
@@ -99,30 +126,30 @@ function Users() {
         name: user.full_name || 'N/A',
         email: user.email,
         phone: user.phone,
-        designation: user.designations?.designation_name || 'N/A',
-        department: user.departments?.department_name || 'N/A',
+        designation: designationMap.get(user.designation_id) || 'N/A',
+        department: departmentMap.get(user.department_id) || 'N/A',
         role: user.role || 'user',
         employeeId: user.employee_id,
         progress: 0, // This would come from progress tracking table
         createdAt: new Date(user.created_at).toISOString().split('T')[0]
       })) || []
       
-      console.log('Transformed users:', transformedUsers)
-      setUsers(transformedUsers)
-      setErrorMessage('')
+      if (mountedRef.current) {
+        setUsers(transformedUsers)
+        setErrorMessage('')
+      }
     } catch (error) {
-      console.error('Error fetching users:', error)
-      console.error('Error details:', error.message, error.code, error.details)
-      
-      // Set user-friendly error message
-      if (error.message?.includes('JWT')) {
-        setErrorMessage('Authentication error. Please check your Supabase credentials.')
-      } else if (error.code === 'PGRST301') {
-        setErrorMessage('Row Level Security is blocking access. Please disable RLS or add policies to the users table.')
-      } else if (error.message) {
-        setErrorMessage(`Error: ${error.message}`)
-      } else {
-        setErrorMessage('Failed to fetch users. Check browser console for details.')
+      if (mountedRef.current) {
+        // Set user-friendly error message
+        if (error.message?.includes('JWT')) {
+          setErrorMessage('Authentication error. Please check your Supabase credentials.')
+        } else if (error.code === 'PGRST301') {
+          setErrorMessage('Row Level Security is blocking access. Please disable RLS or add policies to the users table.')
+        } else if (error.message) {
+          setErrorMessage(`Error: ${error.message}`)
+        } else {
+          setErrorMessage('Failed to fetch users. Check browser console for details.')
+        }
       }
       
       setUsers([])
@@ -141,7 +168,7 @@ function Users() {
       if (error) throw error
       setRegions(data || [])
     } catch (error) {
-      console.error('Error fetching regions:', error)
+      // Silently fail - data will not be available
     }
   }
 
@@ -155,7 +182,7 @@ function Users() {
       if (error) throw error
       setDepartments(data || [])
     } catch (error) {
-      console.error('Error fetching departments:', error)
+      // Silently fail - data will not be available
     }
   }
 
@@ -169,7 +196,7 @@ function Users() {
       if (error) throw error
       setSubDepartments(data || [])
     } catch (error) {
-      console.error('Error fetching sub-departments:', error)
+      // Silently fail - data will not be available
     }
   }
 
@@ -183,7 +210,7 @@ function Users() {
       if (error) throw error
       setBranches(data || [])
     } catch (error) {
-      console.error('Error fetching branches:', error)
+      // Silently fail - data will not be available
     }
   }
 
@@ -197,7 +224,7 @@ function Users() {
       if (error) throw error
       setSubBranches(data || [])
     } catch (error) {
-      console.error('Error fetching sub-branches:', error)
+      // Silently fail - data will not be available
     }
   }
 
@@ -211,7 +238,7 @@ function Users() {
       if (error) throw error
       setGrades(data || [])
     } catch (error) {
-      console.error('Error fetching grades:', error)
+      // Silently fail - data will not be available
     }
   }
 
@@ -225,7 +252,7 @@ function Users() {
       if (error) throw error
       setDesignations(data || [])
     } catch (error) {
-      console.error('Error fetching designations:', error)
+      // Silently fail - data will not be available
     }
   }
 
@@ -291,10 +318,14 @@ function Users() {
         designation_id: data.designation_id || ''
       })
       
+      // Lazy load additional data when edit modal opens
+      if (regions.length === 0) {
+        Promise.all([fetchRegions(), fetchBranches(), fetchSubBranches(), fetchSubDepartments(), fetchGrades()])
+      }
+      
       setEditingUserId(user.id)
       setEditUserModalOpen(true)
     } catch (error) {
-      console.error('Error loading user for edit:', error)
       alert('Failed to load user data: ' + error.message)
     }
   }
@@ -304,21 +335,31 @@ function Users() {
     
     try {
       setLoading(true)
+      setErrorMessage('')
       
       // Validate required fields
       if (!formData.full_name || !formData.email || !formData.employee_id) {
-        alert('Please fill in all required fields: Full Name, Email, and Employee ID')
+        setErrorMessage('Please fill in all required fields: Full Name, Email, and Employee ID')
         setLoading(false)
         return
       }
+
+      // Email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(formData.email)) {
+        setErrorMessage('Please enter a valid email address')
+        setLoading(false)
+        return
+      }
+      
       // Call edge function to create auth user then profile row
       const requestBody = {
-        email: formData.email,
-        password: formData.password || undefined,
-        full_name: formData.full_name,
-        role: formData.role,
-        employee_id: formData.employee_id,
-        phone: formData.phone || null,
+        email: formData.email.trim(),
+        password: formData.password?.trim() || undefined,
+        full_name: formData.full_name.trim(),
+        role: formData.role || 'user',
+        employee_id: formData.employee_id.trim(),
+        phone: formData.phone?.trim() || null,
         date_of_birth: formData.date_of_birth || null,
         date_of_joining: formData.date_of_joining || null,
         region_id: formData.region_id ? parseInt(formData.region_id) : null,
@@ -329,7 +370,8 @@ function Users() {
         grade_id: formData.grade_id ? parseInt(formData.grade_id) : null,
         designation_id: formData.designation_id ? parseInt(formData.designation_id) : null
       }
-      console.log('Sending to create-user function:', requestBody)
+
+      console.log('Creating user with data:', { ...requestBody, password: requestBody.password ? '***' : undefined })
       
       const { data: fnData, error: fnError } = await supabase.functions.invoke('create-user', {
         body: requestBody
@@ -337,16 +379,30 @@ function Users() {
 
       if (fnError) {
         console.error('Edge function error:', fnError)
-        throw new Error(`Edge function error: ${fnError.message || JSON.stringify(fnError)}`)
+        const errorMsg = fnError.message || JSON.stringify(fnError)
+        // Check for duplicate email error
+        if (errorMsg.includes('duplicate') || errorMsg.includes('already exists') || errorMsg.includes('unique')) {
+          throw new Error('A user with this email address already exists. Please use a different email.')
+        }
+        throw new Error(`Edge function error: ${errorMsg}`)
       }
+      
+      console.log('Edge function response:', fnData)
+      
       if (!fnData?.success) {
-        console.error('Function returned error:', fnData)
-        throw new Error(fnData?.error || 'User creation failed')
+        const errorMsg = fnData?.error || 'User creation failed'
+        // Check for duplicate email in response
+        if (errorMsg.toLowerCase().includes('duplicate') || errorMsg.toLowerCase().includes('already exists') || errorMsg.toLowerCase().includes('unique')) {
+          throw new Error('A user with this email address already exists. Please use a different email.')
+        }
+        throw new Error(errorMsg)
       }
 
       // Show generated password if auto-created
       if (fnData.generatedPassword) {
         alert(`User created successfully!\n\nAuto-generated password: ${fnData.generatedPassword}\n\nPlease save this password and share it securely with the user.`)
+      } else {
+        alert('User created successfully!')
       }
 
       // Refresh users list
@@ -373,8 +429,10 @@ function Users() {
       setAddUserModalOpen(false)
       
     } catch (error) {
-      console.error('Error adding user:', error)
-      alert(`Failed to add user: ${error.message}`)
+      console.error('User creation error:', error)
+      const errorMsg = error.message || 'Failed to create user. Please try again.'
+      setErrorMessage(errorMsg)
+      alert(`Failed to add user: ${errorMsg}`)
     } finally {
       setLoading(false)
     }
@@ -410,8 +468,6 @@ function Users() {
         designation_id: formData.designation_id ? parseInt(formData.designation_id) : null
       }
 
-      console.log('Updating user:', editingUserId, updateData)
-
       // Update user in database
       const { error } = await supabase
         .from('users')
@@ -419,8 +475,33 @@ function Users() {
         .eq('id', editingUserId)
 
       if (error) {
-        console.error('Update error:', error)
         throw new Error(`Failed to update user: ${error.message}`)
+      }
+
+      // Update password if requested
+      if (updatePassword && formData.password) {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user-password`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`
+            },
+            body: JSON.stringify({
+              userId: editingUserId,
+              password: formData.password
+            })
+          }
+        )
+
+        const result = await response.json()
+
+        if (!response.ok) {
+          throw new Error(`Failed to update password: ${result.error}`)
+        }
       }
 
       alert('User updated successfully!')
@@ -448,9 +529,9 @@ function Users() {
       })
       setEditingUserId(null)
       setEditUserModalOpen(false)
+      setUpdatePassword(false)
       
     } catch (error) {
-      console.error('Error updating user:', error)
       alert(`Failed to update user: ${error.message}`)
     } finally {
       setLoading(false)
@@ -480,8 +561,163 @@ function Users() {
       await fetchUsers()
       alert('User deleted')
     } catch (err) {
-      console.error('Delete user error:', err)
       alert('Failed to delete user: ' + (err.message || 'Unknown error'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Download Excel template
+  const downloadTemplate = () => {
+    const template = [
+      {
+        'Full Name*': 'John Doe',
+        'Email*': 'john.doe@example.com',
+        'Employee ID*': 'EMP001',
+        'Password*': 'password123',
+        'Phone': '123-456-7890',
+        'Role': 'user',
+        'Date of Birth': '1990-01-15',
+        'Date of Joining': '2024-01-01',
+        'Region': 'North',
+        'Branch': 'Main Branch',
+        'Sub Branch': 'Sub Branch 1',
+        'Department': 'IT',
+        'Sub Department': 'Software',
+        'Grade': 'Grade A',
+        'Designation': 'Developer'
+      }
+    ]
+
+    const ws = XLSX.utils.json_to_sheet(template)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Users Template')
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 20 }, { wch: 30 }, { wch: 15 }, { wch: 15 },
+      { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 15 },
+      { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
+      { wch: 20 }, { wch: 15 }, { wch: 20 }
+    ]
+
+    XLSX.writeFile(wb, 'users_bulk_upload_template.xlsx')
+  }
+
+  // Process bulk upload
+  const handleBulkUpload = async () => {
+    if (!uploadedFile) {
+      alert('Please select a file first')
+      return
+    }
+
+    setLoading(true)
+    setBulkUploadResults(null)
+
+    try {
+      const data = await uploadedFile.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet)
+
+      if (jsonData.length === 0) {
+        alert('The Excel file is empty')
+        setLoading(false)
+        return
+      }
+
+      const results = {
+        total: jsonData.length,
+        success: 0,
+        failed: 0,
+        errors: []
+      }
+
+      // Process each row
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i]
+        try {
+          // Validate required fields
+          if (!row['Full Name*'] || !row['Email*'] || !row['Employee ID*'] || !row['Password*']) {
+            throw new Error('Missing required fields')
+          }
+
+          const email = String(row['Email*']).trim()
+
+          // Skip users that already exist (by email)
+          try {
+            const { data: existingUser, error: existingError } = await supabase
+              .from('users')
+              .select('id')
+              .eq('email', email)
+              .maybeSingle()
+
+            if (!existingError && existingUser) {
+              // Treat existing users as successfully handled and skip creation
+              results.success++
+              continue
+            }
+          } catch (checkError) {
+            // If this check fails, we still try to create the user below
+          }
+
+          // Find IDs for lookup fields
+          const regionId = row['Region'] ? regions.find(r => r.region_name === row['Region'])?.id : null
+          const branchId = row['Branch'] ? branches.find(b => b.branch_name === row['Branch'])?.id : null
+          const subBranchId = row['Sub Branch'] ? subBranches.find(sb => sb.sub_branch_name === row['Sub Branch'])?.id : null
+          const departmentId = row['Department'] ? departments.find(d => d.department_name === row['Department'])?.id : null
+          const subDepartmentId = row['Sub Department'] ? subDepartments.find(sd => sd.sub_department_name === row['Sub Department'])?.id : null
+          const gradeId = row['Grade'] ? grades.find(g => g.grade_name === row['Grade'])?.id : null
+          const designationId = row['Designation'] ? designations.find(d => d.designation_name === row['Designation'])?.id : null
+
+          // Call the same edge function used for single user creation
+          const requestBody = {
+            email,
+            password: row['Password*'],
+            full_name: row['Full Name*'],
+            employee_id: row['Employee ID*'],
+            // Ensure phone is always sent as a string if present
+            phone: row['Phone'] ? String(row['Phone']) : null,
+            role: row['Role'] || 'user',
+            date_of_birth: row['Date of Birth'] || null,
+            date_of_joining: row['Date of Joining'] || null,
+            region_id: regionId,
+            branch_id: branchId,
+            sub_branch_id: subBranchId,
+            department_id: departmentId,
+            sub_department_id: subDepartmentId,
+            grade_id: gradeId,
+            designation_id: designationId
+          }
+
+          const { data: fnData, error: fnError } = await supabase.functions.invoke('create-user', {
+            body: requestBody
+          })
+
+          if (fnError) {
+            throw new Error(fnError.message || 'Edge function error while creating user')
+          }
+
+          if (!fnData?.success) {
+            throw new Error(fnData?.error || 'User creation failed')
+          }
+
+          results.success++
+        } catch (error) {
+          results.failed++
+          results.errors.push({
+            row: i + 2, // +2 because Excel rows start at 1 and there's a header
+            email: row['Email*'] || 'N/A',
+            error: error.message
+          })
+        }
+      }
+
+      setBulkUploadResults(results)
+      await fetchUsers()
+
+    } catch (error) {
+      alert(`Failed to process file: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -589,7 +825,16 @@ function Users() {
               <button className="btn btn-secondary" onClick={fetchUsers} disabled={loading}>
                 <i className={`fa-solid fa-refresh ${loading ? 'fa-spin' : ''}`}></i>Refresh
               </button>
-              <button className="btn btn-primary" onClick={() => setAddUserModalOpen(true)}>
+              <button className="btn btn-secondary" onClick={() => setBulkUploadModalOpen(true)}>
+                <i className="fa-solid fa-file-excel"></i>Bulk Upload
+              </button>
+              <button className="btn btn-primary" onClick={() => {
+                // Lazy load additional data when modal opens
+                if (regions.length === 0) {
+                  Promise.all([fetchRegions(), fetchBranches(), fetchSubBranches(), fetchSubDepartments(), fetchGrades()])
+                }
+                setAddUserModalOpen(true)
+              }}>
                 <i className="fa-solid fa-user-plus"></i>Add New User
               </button>
             </div>
@@ -625,6 +870,7 @@ function Users() {
                   <option>Admin</option>
                   <option>User</option>
                   <option>Trainer</option>
+                  <option>Test</option>
                 </select>
               </div>
               <div className="filter-select-wrapper">
@@ -779,230 +1025,259 @@ function Users() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Add New User</h3>
-              <button onClick={() => setAddUserModalOpen(false)}>
+              <button onClick={() => { setAddUserModalOpen(false); setErrorMessage(''); }}>
                 <i className="fa-solid fa-times"></i>
               </button>
             </div>
-            <form className="modal-body" onSubmit={handleAddUser}>
-              <div className="form-group">
-                <label htmlFor="full_name">Full Name *</label>
-                <input 
-                  type="text" 
-                  id="full_name" 
-                  name="full_name"
-                  value={formData.full_name}
-                  onChange={handleInputChange}
-                  placeholder="John Doe" 
-                  required 
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="employee_id">Employee ID *</label>
-                <input 
-                  type="text" 
-                  id="employee_id" 
-                  name="employee_id"
-                  value={formData.employee_id}
-                  onChange={handleInputChange}
-                  placeholder="EMP001" 
-                  required 
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="email">Email Address *</label>
-                <input 
-                  type="email" 
-                  id="email" 
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  placeholder="name@company.com" 
-                  required 
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="password">Password (optional)</label>
-                <input
-                  type="text"
-                  id="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleInputChange}
-                  placeholder="Auto-generate if left blank"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="phone">Phone</label>
-                <input 
-                  type="tel" 
-                  id="phone" 
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  placeholder="123-456-7890" 
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="region_id">Region</label>
-                  <select 
-                    id="region_id" 
-                    name="region_id"
-                    value={formData.region_id}
-                    onChange={handleInputChange}
-                  >
-                    <option value="">Select region</option>
-                    {regions.map(region => (
-                      <option key={region.id} value={region.id}>
-                        {region.region_name}
-                      </option>
-                    ))}
-                  </select>
+            <form onSubmit={handleAddUser}>
+              <div className="modal-body">
+                {errorMessage && (
+                  <div style={{
+                    padding: '0.75rem',
+                    marginBottom: '1rem',
+                    backgroundColor: '#FEE2E2',
+                    border: '1px solid #DC2626',
+                    borderRadius: '0.5rem',
+                    color: '#991B1B',
+                    fontSize: '0.875rem'
+                  }}>
+                    <strong>⚠️ Error:</strong> {errorMessage}
+                  </div>
+                )}
+                
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="full_name">Full Name *</label>
+                    <input 
+                      type="text" 
+                      id="full_name" 
+                      name="full_name"
+                      value={formData.full_name}
+                      onChange={handleInputChange}
+                      placeholder="e.g., John Doe" 
+                      required 
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="employee_id">Employee ID *</label>
+                    <input 
+                      type="text" 
+                      id="employee_id" 
+                      name="employee_id"
+                      value={formData.employee_id}
+                      onChange={handleInputChange}
+                      placeholder="e.g., EMP001" 
+                      required 
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label htmlFor="branch_id">Branch</label>
-                  <select 
-                    id="branch_id" 
-                    name="branch_id"
-                    value={formData.branch_id}
-                    onChange={handleInputChange}
-                  >
-                    <option value="">Select branch</option>
-                    {branches
-                      .filter(branch => !formData.region_id || branch.region_id === parseInt(formData.region_id))
-                      .map(branch => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.branch_name}
-                        </option>
-                      ))}
-                  </select>
+                
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="email">Email Address *</label>
+                    <input 
+                      type="email" 
+                      id="email" 
+                      name="email"
+                      value={formData.email}
+                      onChange={handleInputChange}
+                      placeholder="e.g., name@company.com" 
+                      required 
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="phone">Phone</label>
+                    <input 
+                      type="tel" 
+                      id="phone" 
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      placeholder="e.g., 123-456-7890" 
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="form-row">
+
                 <div className="form-group">
-                  <label htmlFor="sub_branch_id">Sub-Branch</label>
-                  <select 
-                    id="sub_branch_id" 
-                    name="sub_branch_id"
-                    value={formData.sub_branch_id}
+                  <label htmlFor="password">Password (optional)</label>
+                  <input
+                    type="text"
+                    id="password"
+                    name="password"
+                    value={formData.password}
                     onChange={handleInputChange}
-                  >
-                    <option value="">Select sub-branch</option>
-                    {subBranches
-                      .filter(subBranch => !formData.branch_id || subBranch.branch_id === parseInt(formData.branch_id))
-                      .map(subBranch => (
-                        <option key={subBranch.id} value={subBranch.id}>
-                          {subBranch.sub_branch_name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="department_id">Department</label>
-                  <select 
-                    id="department_id" 
-                    name="department_id"
-                    value={formData.department_id}
-                    onChange={handleInputChange}
-                  >
-                    <option value="">Select department</option>
-                    {departments.map(dept => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.department_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="sub_department_id">Sub-Department</label>
-                  <select 
-                    id="sub_department_id" 
-                    name="sub_department_id"
-                    value={formData.sub_department_id}
-                    onChange={handleInputChange}
-                  >
-                    <option value="">Select sub-department</option>
-                    {subDepartments
-                      .filter(subDept => !formData.department_id || subDept.department_id === parseInt(formData.department_id))
-                      .map(subDept => (
-                        <option key={subDept.id} value={subDept.id}>
-                          {subDept.sub_department_name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="grade_id">Grade</label>
-                  <select 
-                    id="grade_id" 
-                    name="grade_id"
-                    value={formData.grade_id}
-                    onChange={handleInputChange}
-                  >
-                    <option value="">Select grade</option>
-                    {grades.map(grade => (
-                      <option key={grade.id} value={grade.id}>
-                        {grade.grade_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="designation_id">Designation</label>
-                  <select 
-                    id="designation_id" 
-                    name="designation_id"
-                    value={formData.designation_id}
-                    onChange={handleInputChange}
-                  >
-                    <option value="">Select designation</option>
-                    {designations.map(designation => (
-                      <option key={designation.id} value={designation.id}>
-                        {designation.designation_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="role">Role</label>
-                  <select 
-                    id="role" 
-                    name="role"
-                    value={formData.role}
-                    onChange={handleInputChange}
-                  >
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                    <option value="trainer">Trainer</option>
-                  </select>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="date_of_birth">Date of Birth</label>
-                  <input 
-                    type="date" 
-                    id="date_of_birth" 
-                    name="date_of_birth"
-                    value={formData.date_of_birth}
-                    onChange={handleInputChange}
+                    placeholder="Auto-generate if left blank"
                   />
                 </div>
-                <div className="form-group">
-                  <label htmlFor="date_of_joining">Date of Joining</label>
-                  <input 
-                    type="date" 
-                    id="date_of_joining" 
-                    name="date_of_joining"
-                    value={formData.date_of_joining}
-                    onChange={handleInputChange}
-                  />
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="region_id">Region</label>
+                    <select 
+                      id="region_id" 
+                      name="region_id"
+                      value={formData.region_id}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select region</option>
+                      {regions.map(region => (
+                        <option key={region.id} value={region.id}>
+                          {region.region_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="branch_id">Branch</label>
+                    <select 
+                      id="branch_id" 
+                      name="branch_id"
+                      value={formData.branch_id}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select branch</option>
+                      {branches
+                        .filter(branch => !formData.region_id || branch.region_id === parseInt(formData.region_id))
+                        .map(branch => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.branch_name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="sub_branch_id">Sub-Branch</label>
+                    <select 
+                      id="sub_branch_id" 
+                      name="sub_branch_id"
+                      value={formData.sub_branch_id}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select sub-branch</option>
+                      {subBranches
+                        .filter(subBranch => !formData.branch_id || subBranch.branch_id === parseInt(formData.branch_id))
+                        .map(subBranch => (
+                          <option key={subBranch.id} value={subBranch.id}>
+                            {subBranch.sub_branch_name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="department_id">Department</label>
+                    <select 
+                      id="department_id" 
+                      name="department_id"
+                      value={formData.department_id}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select department</option>
+                      {departments.map(dept => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.department_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="sub_department_id">Sub-Department</label>
+                    <select 
+                      id="sub_department_id" 
+                      name="sub_department_id"
+                      value={formData.sub_department_id}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select sub-department</option>
+                      {subDepartments
+                        .filter(subDept => !formData.department_id || subDept.department_id === parseInt(formData.department_id))
+                        .map(subDept => (
+                          <option key={subDept.id} value={subDept.id}>
+                            {subDept.sub_department_name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="designation_id">Designation</label>
+                    <select 
+                      id="designation_id" 
+                      name="designation_id"
+                      value={formData.designation_id}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select designation</option>
+                      {designations.map(designation => (
+                        <option key={designation.id} value={designation.id}>
+                          {designation.designation_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="grade_id">Grade</label>
+                    <select 
+                      id="grade_id" 
+                      name="grade_id"
+                      value={formData.grade_id}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select grade</option>
+                      {grades.map(grade => (
+                        <option key={grade.id} value={grade.id}>
+                          {grade.grade_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="role">Role</label>
+                    <select 
+                      id="role" 
+                      name="role"
+                      value={formData.role}
+                      onChange={handleInputChange}
+                    >
+                      <option value="user">User</option>
+                      <option value="admin">Admin</option>
+                      <option value="trainer">Trainer</option>
+                      <option value="test">Test</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="date_of_birth">Date of Birth</label>
+                    <input 
+                      type="date" 
+                      id="date_of_birth" 
+                      name="date_of_birth"
+                      value={formData.date_of_birth}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="date_of_joining">Date of Joining</label>
+                    <input 
+                      type="date" 
+                      id="date_of_joining" 
+                      name="date_of_joining"
+                      value={formData.date_of_joining}
+                      onChange={handleInputChange}
+                    />
+                  </div>
                 </div>
               </div>
+              
               <div className="modal-footer">
                 <button 
                   type="button" 
@@ -1027,11 +1302,11 @@ function Users() {
 
       {/* Edit User Modal */}
       {editUserModalOpen && (
-        <div className="modal-backdrop" onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); }}>
+        <div className="modal-backdrop" onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setUpdatePassword(false); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Edit User</h3>
-              <button onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); }}>
+              <button onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setUpdatePassword(false); }}>
                 <i className="fa-solid fa-times"></i>
               </button>
             </div>
@@ -1085,6 +1360,38 @@ function Users() {
                   placeholder="123-456-7890" 
                 />
               </div>
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={updatePassword}
+                    onChange={(e) => {
+                      setUpdatePassword(e.target.checked)
+                      if (!e.target.checked) {
+                        setFormData({ ...formData, password: '' })
+                      }
+                    }}
+                    style={{ marginRight: '8px', width: '16px', height: '16px' }}
+                  />
+                  Update Password
+                </label>
+              </div>
+              {updatePassword && (
+                <div className="form-group">
+                  <label htmlFor="edit_password">New Password *</label>
+                  <input 
+                    type="password" 
+                    id="edit_password" 
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    placeholder="Enter new password"
+                    minLength="6"
+                    required={updatePassword}
+                  />
+                  <small style={{ color: '#6B7280', fontSize: '0.875rem' }}>Minimum 6 characters</small>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="edit_region_id">Region</label>
@@ -1221,6 +1528,7 @@ function Users() {
                     <option value="user">User</option>
                     <option value="admin">Admin</option>
                     <option value="trainer">Trainer</option>
+                    <option value="test">Test</option>
                   </select>
                 </div>
               </div>
@@ -1250,7 +1558,7 @@ function Users() {
                 <button 
                   type="button" 
                   className="btn btn-secondary" 
-                  onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); }}
+                  onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setUpdatePassword(false); }}
                   disabled={loading}
                 >
                   Cancel
@@ -1264,6 +1572,114 @@ function Users() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Upload Modal */}
+      {bulkUploadModalOpen && (
+        <div className="modal-backdrop" onClick={() => { setBulkUploadModalOpen(false); setUploadedFile(null); setBulkUploadResults(null); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="modal-header">
+              <h3>Bulk Upload Users</h3>
+              <button onClick={() => { setBulkUploadModalOpen(false); setUploadedFile(null); setBulkUploadResults(null); }}>
+                <i className="fa-solid fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{ marginBottom: '1.5rem' }}>
+                <p style={{ color: '#6B7280', marginBottom: '1rem' }}>
+                  Upload an Excel file with user data. Download the template below to see the required format.
+                </p>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={downloadTemplate}
+                  style={{ width: '100%' }}
+                >
+                  <i className="fa-solid fa-download"></i>Download Excel Template
+                </button>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="bulk_upload_file">Upload Excel File *</label>
+                <input 
+                  type="file" 
+                  id="bulk_upload_file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => {
+                    setUploadedFile(e.target.files[0])
+                    setBulkUploadResults(null)
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    border: '2px dashed #D1D5DB',
+                    borderRadius: '0.5rem',
+                    cursor: 'pointer'
+                  }}
+                />
+                {uploadedFile && (
+                  <small style={{ color: '#4F46E5', marginTop: '0.5rem', display: 'block' }}>
+                    <i className="fa-solid fa-file-excel"></i> {uploadedFile.name}
+                  </small>
+                )}
+              </div>
+
+              {bulkUploadResults && (
+                <div style={{
+                  marginTop: '1.5rem',
+                  padding: '1rem',
+                  backgroundColor: bulkUploadResults.failed === 0 ? '#F0FDF4' : '#FEF3C7',
+                  borderRadius: '0.5rem',
+                  border: `1px solid ${bulkUploadResults.failed === 0 ? '#22C55E' : '#F59E0B'}`
+                }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', color: '#1F2937' }}>Upload Results</h4>
+                  <p style={{ margin: '0.25rem 0', color: '#4B5563' }}>
+                    <strong>Total:</strong> {bulkUploadResults.total} | 
+                    <strong style={{ color: '#22C55E', marginLeft: '0.5rem' }}>Success:</strong> {bulkUploadResults.success} | 
+                    <strong style={{ color: '#EF4444', marginLeft: '0.5rem' }}>Failed:</strong> {bulkUploadResults.failed}
+                  </p>
+                  {bulkUploadResults.errors.length > 0 && (
+                    <div style={{ marginTop: '1rem' }}>
+                      <h5 style={{ margin: '0 0 0.5rem 0', color: '#991B1B' }}>Errors:</h5>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                        {bulkUploadResults.errors.map((err, idx) => (
+                          <div key={idx} style={{ 
+                            padding: '0.5rem', 
+                            marginBottom: '0.5rem', 
+                            backgroundColor: '#FEE2E2', 
+                            borderRadius: '0.25rem',
+                            fontSize: '0.875rem'
+                          }}>
+                            <strong>Row {err.row}:</strong> {err.email} - {err.error}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="modal-footer" style={{ marginTop: '1.5rem' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => { setBulkUploadModalOpen(false); setUploadedFile(null); setBulkUploadResults(null); }}
+                  disabled={loading}
+                >
+                  Close
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-primary"
+                  onClick={handleBulkUpload}
+                  disabled={loading || !uploadedFile}
+                >
+                  {loading ? 'Uploading...' : 'Upload Users'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

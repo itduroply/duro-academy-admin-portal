@@ -39,14 +39,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || Deno.env.get('SUPABASE_DB_URL')
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
-    console.log('Environment check:', { 
-      hasUrl: !!supabaseUrl, 
-      hasKey: !!serviceRoleKey,
-      urlSource: Deno.env.get('SUPABASE_URL') ? 'SUPABASE_URL' : 'SUPABASE_DB_URL'
-    })
-
     if (!supabaseUrl || !serviceRoleKey) {
-      console.error('Missing environment variables!')
+      console.error('Missing environment variables')
       throw new Error('Missing SUPABASE_URL/SUPABASE_DB_URL or SUPABASE_SERVICE_ROLE_KEY')
     }
 
@@ -60,12 +54,37 @@ serve(async (req) => {
 
     // Parse request body
     const body: CreateUserRequest = await req.json()
+    console.log('Received request to create user:', { email: body.email, employee_id: body.employee_id })
+    
     const { email, password, full_name, employee_id, role, phone, date_of_birth, date_of_joining, region_id, branch_id, sub_branch_id, department_id, sub_department_id, grade_id, designation_id } = body
+
+    // Normalize phone to string; we'll store it in metadata/DB only
+    const normalizedPhone = phone != null ? String(phone) : undefined
 
     // Validate required fields
     if (!email || !full_name || !employee_id) {
+      console.error('Missing required fields:', { email: !!email, full_name: !!full_name, employee_id: !!employee_id })
       return new Response(
-        JSON.stringify({ error: 'email, full_name, and employee_id are required' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'Missing required fields. Email, full name, and employee ID are required.' 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      console.error('Invalid email format:', email)
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: 'Invalid email format. Please provide a valid email address.' 
+        }),
         { 
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -76,27 +95,35 @@ serve(async (req) => {
     // Generate password if not provided
     const userPassword = password || crypto.randomUUID()
 
-    console.log('Creating auth user for:', email)
-
     // Step 1: Create auth user
+    console.log('Creating auth user for:', email)
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: email,
       password: userPassword,
-      phone: phone || undefined, // Add phone at top level for auth
+      // Do NOT send phone to auth to avoid type issues; keep it only in metadata/DB
       email_confirm: true, // Auto-confirm email
-      phone_confirm: phone ? true : false, // Auto-confirm phone if provided
       user_metadata: {
         full_name,
         role: role || 'user',
         employee_id,
-        phone
+        phone: normalizedPhone
       }
     })
 
     if (authError) {
       console.error('Auth creation error:', authError)
+      
+      // Check for duplicate email error
+      let errorMessage = authError.message
+      if (errorMessage.includes('already registered') || errorMessage.includes('duplicate') || errorMessage.includes('unique')) {
+        errorMessage = 'A user with this email address already exists. Please use a different email.'
+      }
+      
       return new Response(
-        JSON.stringify({ error: `Failed to create auth user: ${authError.message}` }),
+        JSON.stringify({ 
+          success: false,
+          error: errorMessage
+        }),
         { 
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -105,9 +132,10 @@ serve(async (req) => {
     }
 
     const userId = authData.user.id
-    console.log('Auth user created with ID:', userId)
+    console.log('Auth user created successfully:', userId)
 
     // Step 2: Insert into public.users table
+    console.log('Inserting user profile into database')
     const { data: userData, error: userError} = await supabaseAdmin
       .from('users')
       .insert({
@@ -116,7 +144,7 @@ serve(async (req) => {
         email: email,
         role: role || 'user',
         employee_id: employee_id,
-        phone: phone || null,
+        phone: normalizedPhone || null,
         date_of_birth: date_of_birth || null,
         date_of_joining: date_of_joining || null,
         region_id: region_id || null,
@@ -131,12 +159,15 @@ serve(async (req) => {
       .single()
 
     if (userError) {
-      console.error('Users table insert error:', userError)
+      console.error('User profile creation error:', userError)
       // Try to cleanup auth user if profile creation failed
       await supabaseAdmin.auth.admin.deleteUser(userId)
       
       return new Response(
-        JSON.stringify({ error: `Failed to create user profile: ${userError.message}` }),
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to create user profile: ${userError.message}` 
+        }),
         { 
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -144,8 +175,8 @@ serve(async (req) => {
       )
     }
 
-    console.log('User profile created successfully')
-
+    console.log('User created successfully:', userId)
+    
     // Return success response
     return new Response(
       JSON.stringify({
@@ -170,7 +201,10 @@ serve(async (req) => {
   } catch (error) {
     console.error('Unexpected error:', error)
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ 
+        success: false,
+        error: error.message || 'Internal server error' 
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
