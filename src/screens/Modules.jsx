@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import './Modules.css'
 
 function Modules() {
@@ -61,15 +62,17 @@ function Modules() {
 
   const fetchCategories = async () => {
     try {
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .order('name', { ascending: true })
-
-      if (error) throw error
+      const { data } = await cachedFetch('categories', async () => {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('*')
+          .order('name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.LONG)
 
       if (mountedRef.current) {
-        setCategories(data || [])
+        setCategories(data)
       }
     } catch (error) {
       console.error('Error fetching categories:', error)
@@ -79,15 +82,17 @@ function Modules() {
 
   const fetchDepartments = async () => {
     try {
-      const { data, error } = await supabase
-        .from('departments')
-        .select('*')
-        .order('department_name', { ascending: true })
-
-      if (error) throw error
+      const { data } = await cachedFetch('departments', async () => {
+        const { data, error } = await supabase
+          .from('departments')
+          .select('*')
+          .order('department_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.LONG)
 
       if (mountedRef.current) {
-        setDepartments(data || [])
+        setDepartments(data)
       }
     } catch (error) {
       console.error('Error fetching departments:', error)
@@ -101,21 +106,23 @@ function Modules() {
         setError(null)
       }
       
-      const { data, error } = await supabase
-        .from('modules')
-        .select(`
-          *,
-          categories (
-            id,
-            name
-          )
-        `)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
+      const { data } = await cachedFetch('modules_full', async () => {
+        const { data, error } = await supabase
+          .from('modules')
+          .select(`
+            *,
+            categories (
+              id,
+              name
+            )
+          `)
+          .order('created_at', { ascending: false })
+        if (error) throw error
+        return data || []
+      }, TTL.MEDIUM)
 
       if (mountedRef.current) {
-        setModules(data || [])
+        setModules(data)
       }
     } catch (error) {
       console.error('Error fetching modules:', error)

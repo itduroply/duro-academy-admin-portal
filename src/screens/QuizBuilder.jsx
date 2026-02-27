@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import { supabase } from '../supabaseClient';
+import { cachedFetch, TTL } from '../utils/cacheDB';
 import './QuizBuilder.css';
 
 const QuizBuilder = () => {
@@ -58,14 +59,16 @@ const QuizBuilder = () => {
 
   const fetchModules = async () => {
     try {
-      const { data, error } = await supabase
-        .from('modules')
-        .select('id, title')
-        .order('title', { ascending: true });
+      const { data } = await cachedFetch('modules_list', async () => {
+        const { data, error } = await supabase
+          .from('modules')
+          .select('id, title')
+          .order('title', { ascending: true });
+        if (error) throw error;
+        return data || [];
+      }, TTL.LONG);
 
-      if (error) throw error;
-
-      setModules(data || []);
+      setModules(data);
     } catch (error) {
       console.error('Error fetching modules:', error);
     }
@@ -73,14 +76,16 @@ const QuizBuilder = () => {
 
   const fetchVideos = async () => {
     try {
-      const { data, error } = await supabase
-        .from('videos')
-        .select('id, title, module_id')
-        .order('title', { ascending: true });
+      const { data } = await cachedFetch('videos_with_module', async () => {
+        const { data, error } = await supabase
+          .from('videos')
+          .select('id, title, module_id')
+          .order('title', { ascending: true });
+        if (error) throw error;
+        return data || [];
+      }, TTL.LONG);
 
-      if (error) throw error;
-
-      setVideos(data || []);
+      setVideos(data);
     } catch (error) {
       console.error('Error fetching videos:', error);
     }

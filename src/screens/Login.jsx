@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { metaSet } from '../utils/cacheDB'
 import './Login.css'
 
 function Login() {
@@ -34,15 +35,15 @@ function Login() {
 
       if (userError) throw new Error('User not found in database')
 
-      // Verify admin role
-      if (userData.role !== 'admin') {
+      // Verify admin or super_admin role
+      if (!['admin', 'super_admin'].includes(userData.role)) {
         await supabase.auth.signOut()
         throw new Error('Access denied. Only admin users can access this panel.')
       }
 
       // Store user session
       if (rememberMe) {
-        localStorage.setItem('adminEmail', email)
+        metaSet('adminEmail', email).catch(() => {})
       }
 
       // Navigate to dashboard
@@ -69,12 +70,12 @@ function Login() {
           <div className="form-wrapper">
             <div className="logo-section">
               <img 
-                src="https://storage.googleapis.com/uxpilot-auth.appspot.com/604dfc4353-7332f21e85e56178681e.png" 
-                alt="DuroAcademy Logo" 
+                src="/duro-academy-logo.png" 
+                alt="DuroAcademy Logo"
+                style={{ height: '6rem', width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
               />
             </div>
             <div className="header-text">
-              <h1>DuroAcademy Admin</h1>
               <p>Welcome back! Please sign in to your account.</p>
             </div>
 

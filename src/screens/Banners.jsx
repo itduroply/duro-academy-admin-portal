@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import { supabase } from '../supabaseClient';
+import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB';
 import './Banners.css';
 
 const Banners = () => {
@@ -105,29 +106,35 @@ const Banners = () => {
     setLoadingOptions(true);
     try {
       if (type === 'video') {
-        const { data, error } = await supabase
-          .from('videos')
-          .select('id, title')
-          .order('title', { ascending: true });
-
-        if (error) throw error;
-        setVideos(data || []);
+        const { data } = await cachedFetch('videos_list', async () => {
+          const { data, error } = await supabase
+            .from('videos')
+            .select('id, title')
+            .order('title', { ascending: true });
+          if (error) throw error;
+          return data || [];
+        }, TTL.LONG);
+        setVideos(data);
       } else if (type === 'module') {
-        const { data, error } = await supabase
-          .from('modules')
-          .select('id, title')
-          .order('title', { ascending: true });
-
-        if (error) throw error;
-        setModules(data || []);
+        const { data } = await cachedFetch('modules_list', async () => {
+          const { data, error } = await supabase
+            .from('modules')
+            .select('id, title')
+            .order('title', { ascending: true });
+          if (error) throw error;
+          return data || [];
+        }, TTL.LONG);
+        setModules(data);
       } else if (type === 'category') {
-        const { data, error } = await supabase
-          .from('categories')
-          .select('id, name')
-          .order('name', { ascending: true });
-
-        if (error) throw error;
-        setCategories(data || []);
+        const { data } = await cachedFetch('categories_list', async () => {
+          const { data, error } = await supabase
+            .from('categories')
+            .select('id, name')
+            .order('name', { ascending: true });
+          if (error) throw error;
+          return data || [];
+        }, TTL.LONG);
+        setCategories(data);
       }
     } catch (error) {
       console.error('Error fetching redirect options:', error);

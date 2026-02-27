@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import * as XLSX from 'xlsx'
 import './Users.css'
 
@@ -176,13 +177,15 @@ function Users() {
 
   const fetchRegions = async () => {
     try {
-      const { data, error } = await supabase
-        .from('regions')
-        .select('id, region_name')
-        .order('region_name', { ascending: true })
-
-      if (error) throw error
-      setRegions(data || [])
+      const { data } = await cachedFetch('regions', async () => {
+        const { data, error } = await supabase
+          .from('regions')
+          .select('id, region_name')
+          .order('region_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.VERY_LONG)
+      setRegions(data)
     } catch (error) {
       // Silently fail - data will not be available
     }
@@ -190,13 +193,15 @@ function Users() {
 
   const fetchDepartments = async () => {
     try {
-      const { data, error } = await supabase
-        .from('departments')
-        .select('id, department_name')
-        .order('department_name', { ascending: true })
-
-      if (error) throw error
-      setDepartments(data || [])
+      const { data } = await cachedFetch('departments_lookup', async () => {
+        const { data, error } = await supabase
+          .from('departments')
+          .select('id, department_name')
+          .order('department_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.LONG)
+      setDepartments(data)
     } catch (error) {
       // Silently fail - data will not be available
     }
@@ -204,13 +209,15 @@ function Users() {
 
   const fetchSubDepartments = async () => {
     try {
-      const { data, error } = await supabase
-        .from('sub_departments')
-        .select('id, department_id, sub_department_name')
-        .order('sub_department_name', { ascending: true })
-
-      if (error) throw error
-      setSubDepartments(data || [])
+      const { data } = await cachedFetch('sub_departments', async () => {
+        const { data, error } = await supabase
+          .from('sub_departments')
+          .select('id, department_id, sub_department_name')
+          .order('sub_department_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.VERY_LONG)
+      setSubDepartments(data)
     } catch (error) {
       // Silently fail - data will not be available
     }
@@ -218,13 +225,15 @@ function Users() {
 
   const fetchBranches = async () => {
     try {
-      const { data, error } = await supabase
-        .from('branches')
-        .select('id, region_id, branch_name')
-        .order('branch_name', { ascending: true })
-
-      if (error) throw error
-      setBranches(data || [])
+      const { data } = await cachedFetch('branches', async () => {
+        const { data, error } = await supabase
+          .from('branches')
+          .select('id, region_id, branch_name')
+          .order('branch_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.VERY_LONG)
+      setBranches(data)
     } catch (error) {
       // Silently fail - data will not be available
     }
@@ -232,13 +241,15 @@ function Users() {
 
   const fetchSubBranches = async () => {
     try {
-      const { data, error } = await supabase
-        .from('sub_branches')
-        .select('id, branch_id, sub_branch_name')
-        .order('sub_branch_name', { ascending: true })
-
-      if (error) throw error
-      setSubBranches(data || [])
+      const { data } = await cachedFetch('sub_branches', async () => {
+        const { data, error } = await supabase
+          .from('sub_branches')
+          .select('id, branch_id, sub_branch_name')
+          .order('sub_branch_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.VERY_LONG)
+      setSubBranches(data)
     } catch (error) {
       // Silently fail - data will not be available
     }
@@ -246,13 +257,15 @@ function Users() {
 
   const fetchGrades = async () => {
     try {
-      const { data, error } = await supabase
-        .from('grades')
-        .select('id, grade_name')
-        .order('grade_name', { ascending: true })
-
-      if (error) throw error
-      setGrades(data || [])
+      const { data } = await cachedFetch('grades', async () => {
+        const { data, error } = await supabase
+          .from('grades')
+          .select('id, grade_name')
+          .order('grade_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.VERY_LONG)
+      setGrades(data)
     } catch (error) {
       // Silently fail - data will not be available
     }
@@ -260,13 +273,15 @@ function Users() {
 
   const fetchDesignations = async () => {
     try {
-      const { data, error } = await supabase
-        .from('designations')
-        .select('id, designation_name')
-        .order('designation_name', { ascending: true })
-
-      if (error) throw error
-      setDesignations(data || [])
+      const { data } = await cachedFetch('designations', async () => {
+        const { data, error } = await supabase
+          .from('designations')
+          .select('id, designation_name')
+          .order('designation_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.VERY_LONG)
+      setDesignations(data)
     } catch (error) {
       // Silently fail - data will not be available
     }

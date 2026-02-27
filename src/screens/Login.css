@@ -54,8 +54,10 @@
 }
 
 .logo-section img {
-  height: 1.75rem;
-  width: auto;
+  height: 6rem !important;
+  width: auto !important;
+  max-width: 100% !important;
+  object-fit: contain;
   transition: height 0.3s ease;
 }
 
@@ -357,7 +359,7 @@
   }
 
   .logo-section img {
-    height: 1.5rem;
+    height: 3.5rem !important;
   }
 
   .header-text {
@@ -407,7 +409,7 @@
   }
 
   .logo-section img {
-    height: 1.75rem;
+    height: 4rem !important;
   }
 
   .logo-section {
@@ -450,7 +452,7 @@
   }
 
   .logo-section img {
-    height: 2.25rem;
+    height: 5rem !important;
   }
 
   .logo-section {
@@ -519,7 +521,7 @@
   }
 
   .logo-section img {
-    height: 2.75rem;
+    height: 6rem !important;
   }
 
   .logo-section {
@@ -582,7 +584,7 @@
   }
 
   .logo-section img {
-    height: 3rem;
+    height: 7rem !important;
   }
 
   .header-text h1 {

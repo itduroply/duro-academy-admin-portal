@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import { cacheSet, cacheGet, cachedFetch, TTL } from '../utils/cacheDB'
 import './Feedbacks.css'
 
 function Feedbacks() {
@@ -55,21 +56,30 @@ function Feedbacks() {
         return
       }
 
-      // Batch fetch related metadata (modules, videos, users) only for referenced IDs
+      // Batch fetch related metadata — use cache for modules/videos (change less often)
       const moduleIds = [...new Set(rows.filter(r => r.module_id).map(r => r.module_id))]
       const videoIds = [...new Set(rows.filter(r => r.video_id).map(r => r.video_id))]
       const userIds = [...new Set(rows.filter(r => r.user_id).map(r => r.user_id))]
 
-      // Parallel fetches (skip queries with empty arrays)
+      // Use cached modules/videos lists, fresh user data
       const [modulesRes, videosRes, usersRes] = await Promise.all([
-        moduleIds.length ? supabase.from('modules').select('id,title').in('id', moduleIds) : Promise.resolve({ data: [] }),
-        videoIds.length ? supabase.from('videos').select('id,title').in('id', videoIds) : Promise.resolve({ data: [] }),
+        moduleIds.length ? cachedFetch('feedback_modules_' + moduleIds.sort().join(','), () => 
+          supabase.from('modules').select('id,title').in('id', moduleIds).then(r => r.data || []),
+          TTL.LONG
+        ) : Promise.resolve({ data: [] }),
+        videoIds.length ? cachedFetch('feedback_videos_' + videoIds.sort().join(','), () =>
+          supabase.from('videos').select('id,title').in('id', videoIds).then(r => r.data || []),
+          TTL.LONG
+        ) : Promise.resolve({ data: [] }),
         userIds.length ? supabase.from('users').select('id,full_name,email').in('id', userIds) : Promise.resolve({ data: [] })
       ])
 
-      const modulesMap = Object.fromEntries((modulesRes.data || []).map(m => [m.id, m]))
-      const videosMap = Object.fromEntries((videosRes.data || []).map(v => [v.id, v]))
-      const usersMap = Object.fromEntries((usersRes.data || []).map(u => [u.id, u]))
+      const modulesData = modulesRes.data || []
+      const videosData = videosRes.data || []
+      const usersData = usersRes.data || []
+      const modulesMap = Object.fromEntries(modulesData.map(m => [m.id, m]))
+      const videosMap = Object.fromEntries(videosData.map(v => [v.id, v]))
+      const usersMap = Object.fromEntries(usersData.map(u => [u.id, u]))
 
       const mapped = rows.map(f => ({
         id: f.id,

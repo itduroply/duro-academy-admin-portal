@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import { cachedFetch, cacheSet, cacheGet, TTL } from '../utils/cacheDB'
 import './Notifications.css'
 
 function Notifications() {
@@ -40,12 +41,18 @@ function Notifications() {
     setLoading(true)
     setError(null)
     try {
-      const [{ data: notifRows, error: notifErr }, { data: userRows, error: userErr }] = await Promise.all([
-        supabase.from('notifications').select('*').order('created_at', { ascending: false }),
-        supabase.from('users').select('id, full_name, email').order('full_name')
-      ])
+      // Cache users list (used for dropdown, changes infrequently)
+      const { data: cachedUsers } = await cachedFetch('users_basic', async () => {
+        const { data, error } = await supabase.from('users').select('id, full_name, email').order('full_name')
+        if (error) throw error
+        return data || []
+      }, TTL.MEDIUM)
+
+      const { data: notifRows, error: notifErr } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
       if (notifErr) throw notifErr
-      if (userErr) throw userErr
 
       const mapped = (notifRows || []).map(n => ({
         id: n.id,

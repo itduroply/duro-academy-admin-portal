@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { cacheClearAll } from '../utils/cacheDB'
+import { useAuth } from '../contexts/AuthContext'
+import { NAV_ITEMS, SCREENS } from '../config/permissions'
 import './Sidebar.css'
 
 function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { hasAccess, role } = useAuth()
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen)
@@ -19,12 +23,15 @@ function Sidebar() {
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut()
-      localStorage.removeItem('adminEmail')
+      await cacheClearAll() // Clear all IndexedDB cache on logout
       navigate('/login')
     } catch (error) {
       console.error('Logout error:', error)
     }
   }
+
+  // Filter nav items based on user's role permissions
+  const visibleNavItems = NAV_ITEMS.filter(item => hasAccess(item.screen))
 
   return (
     <>
@@ -38,90 +45,32 @@ function Sidebar() {
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <h1>DuroAcademy</h1>
+          {role && (
+            <span className={`role-badge ${role === 'super_admin' ? 'super-admin' : 'admin'}`}>
+              {role === 'super_admin' ? 'Super Admin' : 'Admin'}
+            </span>
+          )}
         </div>
         <nav className="sidebar-nav">
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/dashboard')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/dashboard'); }}
-          >
-            <i className="fa-solid fa-chart-pie"></i>
-            Dashboard
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/modules')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/modules'); }}
-          >
-            <i className="fa-solid fa-puzzle-piece"></i>
-            Modules
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/module-requests')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/module-requests'); }}
-          >
-            <i className="fa-solid fa-user-check"></i>
-            Module Requests
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/users')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/users'); }}
-          >
-            <i className="fa-solid fa-users"></i>
-            Users
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/banners')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/banners'); }}
-          >
-            <i className="fa-solid fa-image"></i>
-            Banners
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/feedbacks')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/feedbacks'); }}
-          >
-            <i className="fa-solid fa-comment-dots"></i>
-            Feedback
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/notifications')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/notifications'); }}
-          >
-            <i className="fa-regular fa-bell"></i>
-            Notifications
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/assessments')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/assessments'); }}
-          >
-            <i className="fa-solid fa-clipboard-question"></i>
-            Assessments
-          </a>
-          <a 
-            href="#" 
-            className={`nav-link ${isActive('/assignment-results')}`} 
-            onClick={(e) => { e.preventDefault(); navigate('/assignment-results'); }}
-          >
-            <i className="fa-solid fa-clipboard-list"></i>
-            Assignment Results
-          </a>
-          <a href="#" className="nav-link" onClick={(e) => e.preventDefault()}>
-            <i className="fa-solid fa-chart-line"></i>
-            Analytics
-          </a>
+          {visibleNavItems.map((item) => (
+            <a 
+              key={item.path}
+              href="#" 
+              className={`nav-link ${isActive(item.path)}`} 
+              onClick={(e) => { e.preventDefault(); navigate(item.path); setSidebarOpen(false); }}
+            >
+              <i className={item.icon}></i>
+              {item.label}
+            </a>
+          ))}
         </nav>
         <div className="sidebar-footer">
-          <a href="#" className="nav-link" onClick={(e) => e.preventDefault()}>
-            <i className="fa-solid fa-gear"></i>
-            Settings
-          </a>
+          {hasAccess(SCREENS.SETTINGS) && (
+            <a href="#" className="nav-link" onClick={(e) => e.preventDefault()}>
+              <i className="fa-solid fa-gear"></i>
+              Settings
+            </a>
+          )}
           <a href="#" className="nav-link logout-link" onClick={(e) => { e.preventDefault(); handleLogout(); }}>
             <i className="fa-solid fa-right-from-bracket"></i>
             Logout

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import { cachedFetch, TTL } from '../utils/cacheDB'
 import './AssignmentResults.css'
 
 function AssignmentResults() {
@@ -42,18 +43,24 @@ function AssignmentResults() {
         setError('')
       }
 
-      const [usersRes, quizzesRes, resultsRes] = await Promise.all([
-        supabase.from('users').select('id, full_name, email'),
-        supabase.from('quizzes').select('id, title, passing_score'),
+      const [usersResult, quizzesResult, resultsRes] = await Promise.all([
+        cachedFetch('users_basic', async () => {
+          const { data, error } = await supabase.from('users').select('id, full_name, email')
+          if (error) throw error
+          return data || []
+        }, TTL.MEDIUM),
+        cachedFetch('quizzes_basic', async () => {
+          const { data, error } = await supabase.from('quizzes').select('id, title, passing_score')
+          if (error) throw error
+          return data || []
+        }, TTL.MEDIUM),
         supabase.from('user_quiz_results').select('*').order('completed_at', { ascending: false })
       ])
 
-      if (usersRes.error) throw usersRes.error
-      if (quizzesRes.error) throw quizzesRes.error
       if (resultsRes.error) throw resultsRes.error
 
-      const users = usersRes.data || []
-      const quizzes = quizzesRes.data || []
+      const users = usersResult.data || []
+      const quizzes = quizzesResult.data || []
       const attempts = resultsRes.data || []
 
       if (mountedRef.current) {

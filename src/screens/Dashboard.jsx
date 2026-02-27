@@ -2,13 +2,14 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import { cachedFetch, cacheSet, cacheGet, TTL } from '../utils/cacheDB'
 import './Dashboard.css'
 
 function Dashboard() {
   const mountedRef = useRef(true)
   const chartsRef = useRef([])
   const weeklyChartRef = useRef(null)
-  const moduleChartRef = useRef(null)
+  const moduleChartRef = null // removed
   const userStatusChartRef = useRef(null)
   
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -20,11 +21,6 @@ function Dashboard() {
     loading: true
   })
   const [weeklySignups, setWeeklySignups] = useState([])
-  const [moduleCompletion, setModuleCompletion] = useState({
-    categories: [],
-    data: [],
-    colors: []
-  })
   const [chartsReady, setChartsReady] = useState(false)
 
   const toggleSidebar = useCallback(() => {
@@ -42,25 +38,19 @@ function Dashboard() {
     
     console.log('[Dashboard] Loading stats (fast initial load)...')
     
-    // Try to use cached stats
-    const cached = sessionStorage.getItem('dashboardStats')
-    if (cached) {
-      console.log('[Dashboard] Using cached stats')
-      try {
-        setStats(JSON.parse(cached))
-        if (mountedRef.current) {
-          setStats(prev => ({ ...prev, loading: false }))
-        }
+    // Try to use IndexedDB cached stats
+    const loadStats = async () => {
+      const cached = await cacheGet('dashboardStats')
+      if (cached && mountedRef.current) {
+        console.log('[Dashboard] Using cached stats from IndexedDB')
+        setStats({ ...cached, loading: false })
         // Still refresh in background
         fetchStats()
         return
-      } catch (e) {
-        console.error('Failed to parse cached stats')
       }
+      fetchStats()
     }
-    
-    // Load stats immediately
-    fetchStats()
+    loadStats()
     
     return () => {
       mountedRef.current = false
@@ -77,7 +67,7 @@ function Dashboard() {
     const timer = setTimeout(() => {
       if (mountedRef.current) {
         console.log('[Dashboard] Loading chart data (deferred)...')
-        Promise.all([fetchWeeklySignups(), fetchModuleCompletion()]).then(() => {
+        Promise.all([fetchWeeklySignups()]).then(() => {
           console.log('[Dashboard] Chart data loaded')
         })
       }
@@ -144,10 +134,6 @@ function Dashboard() {
         if (weeklyChartRef.current) {
           weeklyChartRef.current.destroy()
           weeklyChartRef.current = null
-        }
-        if (moduleChartRef.current) {
-          moduleChartRef.current.destroy()
-          moduleChartRef.current = null
         }
         if (userStatusChartRef.current) {
           userStatusChartRef.current.destroy()
@@ -232,58 +218,6 @@ function Dashboard() {
     }
   }
 
-  const fetchModuleCompletion = async () => {
-    try {
-      // Fetch all modules
-      const { data: modules, error: modulesError } = await supabase
-        .from('modules')
-        .select('id, title')
-        .order('title', { ascending: true })
-        .limit(5)
-
-      if (modulesError) {
-        if (mountedRef.current) {
-          setModuleCompletion({
-            categories: ['Intro', 'Sales', 'HR', 'Support'],
-            data: [85, 72, 90, 65],
-            colors: ['#60A5FA', '#3B82F6', '#2563EB', '#1D4ED8']
-          })
-        }
-        return
-      }
-
-      if (!modules || modules.length === 0) {
-        if (mountedRef.current) {
-          setModuleCompletion({
-            categories: [],
-            data: [],
-            colors: []
-          })
-        }
-        return
-      }
-
-      // Use mock data since user_module_progress table might not exist or have RLS enabled
-      // This prevents 400 errors from flooding the console
-      const blueShades = ['#60A5FA', '#3B82F6', '#2563EB', '#1D4ED8', '#1E40AF']
-      if (mountedRef.current) {
-        setModuleCompletion({
-          categories: modules.map(m => m.title),
-          data: modules.map(() => 0), // Set to 0 as placeholder
-          colors: blueShades.slice(0, modules.length)
-        })
-      }
-    } catch (error) {
-      if (mountedRef.current) {
-        setModuleCompletion({
-          categories: ['Intro', 'Sales', 'HR', 'Support'],
-          data: [85, 72, 90, 65],
-          colors: ['#60A5FA', '#3B82F6', '#2563EB', '#1D4ED8']
-        })
-      }
-    }
-  }
-
   const fetchStats = async () => {
     try {
       console.log('[Dashboard] Fetching stats...')
@@ -310,12 +244,8 @@ function Dashboard() {
           loading: false
         }
         
-        // Cache stats for next page load
-        try {
-          sessionStorage.setItem('dashboardStats', JSON.stringify(newStats))
-        } catch (e) {
-          // Storage might be full, ignore
-        }
+        // Cache stats in IndexedDB for next page load
+        cacheSet('dashboardStats', newStats, TTL.SHORT).catch(() => {})
         
         setStats(newStats)
         console.log('[Dashboard] Stats loaded:', newStats)
@@ -337,10 +267,6 @@ function Dashboard() {
       if (weeklyChartRef.current) {
         weeklyChartRef.current.destroy()
         weeklyChartRef.current = null
-      }
-      if (moduleChartRef.current) {
-        moduleChartRef.current.destroy()
-        moduleChartRef.current = null
       }
       if (userStatusChartRef.current) {
         userStatusChartRef.current.destroy()
@@ -400,51 +326,6 @@ function Dashboard() {
           name: 'New Users',
           data: weeklySignups.length > 0 ? weeklySignups : [0, 0, 0, 0, 0, 0, 0],
           color: '#4F46E5'
-        }]
-      })
-
-      // Module Completion Chart
-      moduleChartRef.current = Highcharts.chart('module-completion-chart', {
-        chart: { type: 'bar', backgroundColor: 'transparent' },
-        title: { text: null },
-        credits: { enabled: false },
-        xAxis: {
-          categories: moduleCompletion.categories.length > 0 ? moduleCompletion.categories : ['No modules'],
-          labels: { 
-            enabled: true,
-            style: { 
-              color: '#4B5563', 
-              fontSize: '13px',
-              fontWeight: '500'
-            }
-          },
-          lineWidth: 0,
-        },
-        yAxis: {
-          min: 0, max: 100,
-          title: { text: null },
-          gridLineWidth: 0,
-          labels: { enabled: false }
-        },
-        legend: { enabled: false },
-        tooltip: { 
-          enabled: true,
-          valueSuffix: '%',
-          headerFormat: '<b>{point.key}</b><br/>',
-          pointFormat: 'Completion: {point.y}%'
-        },
-        plotOptions: {
-          bar: {
-            dataLabels: { enabled: true, format: '{y}%', style: { color: '#374151', textOutline: 'none' } },
-            pointWidth: 15,
-            borderRadius: 5
-          }
-        },
-        series: [{
-          name: 'Completion',
-          data: moduleCompletion.data.length > 0 ? moduleCompletion.data : [0],
-          colorByPoint: true,
-          colors: moduleCompletion.colors.length > 0 ? moduleCompletion.colors : ['#60A5FA']
         }]
       })
 
@@ -593,16 +474,6 @@ function Dashboard() {
               </div>
 
               <div className="charts-side">
-                <div className="chart-small">
-                  <h3>Module Completion</h3>
-                  {moduleCompletion.categories.length > 0 ? (
-                    <div id="module-completion-chart" className="chart-container-small"></div>
-                  ) : (
-                    <div className="chart-container-small" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '250px', color: '#9CA3AF' }}>
-                      <p>Loading...</p>
-                    </div>
-                  )}
-                </div>
                 <div className="chart-small">
                   <h3>User Status</h3>
                   <div id="user-status-chart" className="chart-container-small"></div>

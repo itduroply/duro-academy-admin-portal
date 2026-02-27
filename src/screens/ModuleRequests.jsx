@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
+import { cachedFetch, TTL } from '../utils/cacheDB'
 import './ModuleRequests.css'
 
 function ModuleRequests() {

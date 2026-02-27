@@ -1,54 +1,8 @@
-import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import { supabase } from '../supabaseClient'
+import { useAuth } from '../contexts/AuthContext'
 
-function ProtectedRoute({ children }) {
-  const [loading, setLoading] = useState(true)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
-
-  useEffect(() => {
-    checkAuth()
-  }, [])
-
-  const checkAuth = async () => {
-    try {
-      // Check if user is logged in
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session) {
-        setIsAuthenticated(false)
-        setLoading(false)
-        return
-      }
-
-      // Check if user has admin role
-      const { data: userData, error } = await supabase
-        .from('users')
-        .select('role')
-        .eq('email', session.user.email)
-        .single()
-
-      if (error || !userData) {
-        setIsAuthenticated(false)
-        setLoading(false)
-        return
-      }
-
-      if (userData.role === 'admin') {
-        setIsAuthenticated(true)
-        setIsAdmin(true)
-      } else {
-        setIsAuthenticated(false)
-        // Sign out non-admin users
-        await supabase.auth.signOut()
-      }
-    } catch (error) {
-      setIsAuthenticated(false)
-    } finally {
-      setLoading(false)
-    }
-  }
+function ProtectedRoute({ children, requiredScreen }) {
+  const { loading, isAuthenticated, hasAccess } = useAuth()
 
   if (loading) {
     return (
@@ -66,8 +20,13 @@ function ProtectedRoute({ children }) {
     )
   }
 
-  if (!isAuthenticated || !isAdmin) {
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />
+  }
+
+  // Check screen-level permission
+  if (requiredScreen && !hasAccess(requiredScreen)) {
+    return <Navigate to="/dashboard" replace />
   }
 
   return children
