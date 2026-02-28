@@ -317,9 +317,11 @@ function Videos() {
                     {paginated.map((video, idx) => (
                       <tr key={video.id} onClick={() => { setSelectedVideo(video); setDrawerOpen(true) }}>
                         <td>{(currentPage - 1) * itemsPerPage + idx + 1}</td>
-                        <td className="vid-title-cell">
-                          <i className="fa-solid fa-film vid-icon"></i>
-                          <span className="vid-title-text">{video.title}</span>
+                        <td>
+                          <div className="vid-title-cell">
+                            <i className="fa-solid fa-film vid-icon"></i>
+                            <span className="vid-title-text">{video.title}</span>
+                          </div>
                         </td>
                         <td>
                           <span className="vid-module-badge">
