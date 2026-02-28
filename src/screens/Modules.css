@@ -126,8 +126,9 @@
 }
 
 .modules-table td {
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 1rem;
   border-bottom: 1px solid #E5E7EB;
+  vertical-align: middle;
 }
 
 .modules-table tbody tr {
@@ -146,6 +147,7 @@
 
 .modules-table .text-right {
   text-align: right;
+  white-space: nowrap;
 }
 
 .modules-table .font-medium {
@@ -160,8 +162,10 @@
   cursor: pointer;
   font-weight: 500;
   padding: 0.25rem;
-  margin: 0 0.5rem;
+  margin: 0 0.25rem;
   transition: color 0.2s;
+  display: inline-flex;
+  vertical-align: middle;
 }
 
 .edit-btn {
