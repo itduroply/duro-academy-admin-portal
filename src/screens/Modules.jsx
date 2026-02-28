@@ -385,9 +385,6 @@ function Modules() {
               <p>Manage, create, and organize all learning modules.</p>
             </div>
             <div className="action-buttons">
-              <button className="btn btn-secondary" onClick={() => setUploadVideoModalOpen(true)}>
-                <i className="fa-solid fa-upload"></i>Upload Video
-              </button>
               <button className="btn btn-secondary" onClick={fetchModules}>
                 <i className="fa-solid fa-arrows-rotate"></i>Refresh
               </button>
