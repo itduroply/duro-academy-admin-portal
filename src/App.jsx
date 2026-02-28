@@ -22,6 +22,7 @@ const AssignmentResults = lazy(() => import('./screens/AssignmentResults'))
 const VideoProgress = lazy(() => import('./screens/VideoProgress'))
 const ActiveLogins = lazy(() => import('./screens/ActiveLogins'))
 const AdminPermissions = lazy(() => import('./screens/AdminPermissions'))
+const Videos = lazy(() => import('./screens/Videos'))
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -52,6 +53,7 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/dashboard" element={<ProtectedRoute requiredScreen={SCREENS.DASHBOARD}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Dashboard /></Suspense></ErrorBoundary></ProtectedRoute>} />
           <Route path="/modules" element={<ProtectedRoute requiredScreen={SCREENS.MODULES}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Modules /></Suspense></ErrorBoundary></ProtectedRoute>} />
+          <Route path="/videos" element={<ProtectedRoute requiredScreen={SCREENS.VIDEOS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Videos /></Suspense></ErrorBoundary></ProtectedRoute>} />
           <Route path="/module-requests" element={<ProtectedRoute requiredScreen={SCREENS.MODULE_REQUESTS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><ModuleRequests /></Suspense></ErrorBoundary></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute requiredScreen={SCREENS.USERS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Users /></Suspense></ErrorBoundary></ProtectedRoute>} />
           <Route path="/banners" element={<ProtectedRoute requiredScreen={SCREENS.BANNERS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Banners /></Suspense></ErrorBoundary></ProtectedRoute>} />

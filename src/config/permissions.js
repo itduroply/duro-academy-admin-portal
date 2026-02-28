@@ -12,6 +12,7 @@
 export const SCREENS = {
   DASHBOARD: 'dashboard',
   MODULES: 'modules',
+  VIDEOS: 'videos',
   MODULE_REQUESTS: 'module-requests',
   USERS: 'users',
   BANNERS: 'banners',
@@ -41,6 +42,7 @@ export const ROLE_PERMISSIONS = {
   admin: [
     SCREENS.DASHBOARD,
     SCREENS.MODULES,
+    SCREENS.VIDEOS,
     SCREENS.MODULE_REQUESTS,
     SCREENS.BANNERS,
     SCREENS.FEEDBACKS,
@@ -58,6 +60,7 @@ export const ROLE_PERMISSIONS = {
 export const NAV_ITEMS = [
   { path: '/dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-pie', screen: SCREENS.DASHBOARD },
   { path: '/modules', label: 'Modules', icon: 'fa-solid fa-puzzle-piece', screen: SCREENS.MODULES },
+  { path: '/videos', label: 'Videos', icon: 'fa-solid fa-video', screen: SCREENS.VIDEOS },
   { path: '/module-requests', label: 'Module Requests', icon: 'fa-solid fa-user-check', screen: SCREENS.MODULE_REQUESTS },
   { path: '/users', label: 'Users', icon: 'fa-solid fa-users', screen: SCREENS.USERS },
   { path: '/banners', label: 'Banners', icon: 'fa-solid fa-image', screen: SCREENS.BANNERS },
