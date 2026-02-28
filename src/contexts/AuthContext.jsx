@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
-import { ROLE_PERMISSIONS, ALLOWED_ROLES } from '../config/permissions'
+import { ROLE_PERMISSIONS, ALLOWED_ROLES, SCREENS } from '../config/permissions'
 
 const AuthContext = createContext(null)
 
@@ -101,6 +101,11 @@ export function AuthProvider({ children }) {
   const hasAccess = (screenKey) => {
     if (!role) return false
     if (role === 'super_admin') return true
+
+    // Quiz Builder is a sub-route of Assessments — grant access automatically
+    if (screenKey === SCREENS.QUIZ_BUILDER) {
+      return hasAccess(SCREENS.ASSESSMENTS)
+    }
 
     // If DB permissions exist for this admin, use them
     if (allowedScreens !== null) {
