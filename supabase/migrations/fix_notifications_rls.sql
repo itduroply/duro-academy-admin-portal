@@ -1,4 +1,4 @@
--- Fix RLS policies for notifications table to allow admin INSERT, UPDATE, DELETE
+-- Fix RLS policies for notifications table to allow admin/super_admin INSERT, UPDATE, DELETE
 
 -- Enable RLS on notifications table (if not already enabled)
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
@@ -10,7 +10,7 @@ DROP POLICY IF EXISTS "Admins can delete notifications" ON notifications;
 DROP POLICY IF EXISTS "Admins can view all notifications" ON notifications;
 DROP POLICY IF EXISTS "Users can view their own notifications" ON notifications;
 
--- Allow admins full access to notifications
+-- Allow admins and super_admins full access to notifications
 CREATE POLICY "Admins can insert notifications" 
 ON notifications FOR INSERT 
 TO authenticated
@@ -18,7 +18,7 @@ WITH CHECK (
   EXISTS (
     SELECT 1 FROM users 
     WHERE users.id = auth.uid() 
-    AND users.role = 'admin'
+    AND users.role IN ('admin', 'super_admin')
   )
 );
 
@@ -29,7 +29,7 @@ USING (
   EXISTS (
     SELECT 1 FROM users 
     WHERE users.id = auth.uid() 
-    AND users.role = 'admin'
+    AND users.role IN ('admin', 'super_admin')
   )
 );
 
@@ -40,7 +40,7 @@ USING (
   EXISTS (
     SELECT 1 FROM users 
     WHERE users.id = auth.uid() 
-    AND users.role = 'admin'
+    AND users.role IN ('admin', 'super_admin')
   )
 );
 
@@ -51,7 +51,7 @@ USING (
   EXISTS (
     SELECT 1 FROM users 
     WHERE users.id = auth.uid() 
-    AND users.role = 'admin'
+    AND users.role IN ('admin', 'super_admin')
   )
 );
 
@@ -62,8 +62,3 @@ TO authenticated
 USING (
   user_id = auth.uid()
 );
-
--- Verify policies
-SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual
-FROM pg_policies
-WHERE tablename = 'notifications';

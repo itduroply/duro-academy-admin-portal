@@ -67,7 +67,7 @@ function Notifications() {
         recipientsCount: n.data?.userIds ? n.data.userIds.length : (n.user_id ? 1 : (n.data?.targetType === 'all' ? 'ALL' : 0))
       }))
       setNotifications(mapped)
-      setUsers(userRows || [])
+      setUsers(cachedUsers || [])
     } catch (e) {
       setError(e.message)
     } finally {
