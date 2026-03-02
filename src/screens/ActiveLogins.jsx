@@ -97,7 +97,9 @@ function ActiveLogins() {
     })
 
     // Build one entry per unique user
-    return Object.entries(grouped).map(([uid, sessions]) => {
+    return Object.entries(grouped)
+      .filter(([uid]) => uid !== 'unknown' && userMap[uid]) // Skip unknown/deleted users
+      .map(([uid, sessions]) => {
       const user = userMap[uid] || {}
       // Sort sessions by updated_at descending
       sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
