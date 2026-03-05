@@ -1,6 +1,4 @@
 import { useEffect, useState, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheSet, cacheGet, TTL } from '../utils/cacheDB'
 import './Notifications.css'
@@ -188,10 +186,7 @@ function Notifications() {
   }
 
   return (
-    <div className="notifications-panel">
-      <Sidebar />
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={() => {}} />
+    <>
         <main className="notifications-main">
           <div className="section-header">
             <h2 className="page-title">Notifications</h2>
@@ -340,7 +335,6 @@ function Notifications() {
             )}
           </div>
         </main>
-      </div>
       {panelOpen && selected && (
         <div className="notification-panel-overlay" onClick={closePanel}>
           <div className="notification-panel" onClick={e => e.stopPropagation()}>
@@ -400,7 +394,7 @@ function Notifications() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

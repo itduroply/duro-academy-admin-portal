@@ -26,20 +26,7 @@ function Login() {
 
       if (signInError) throw signInError
 
-      // Check if user exists and has admin role
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('role')
-        .eq('email', email)
-        .single()
-
-      if (userError) throw new Error('User not found in database')
-
-      // Verify admin or super_admin role
-      if (!['admin', 'super_admin'].includes(userData.role)) {
-        await supabase.auth.signOut()
-        throw new Error('Access denied. Only admin users can access this panel.')
-      }
+      // AuthContext handles role verification via onAuthStateChange
 
       // Store user session
       if (rememberMe) {

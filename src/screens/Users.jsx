@@ -1,6 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import * as XLSX from 'xlsx'
@@ -66,6 +64,29 @@ function Users() {
     return name[0].toUpperCase()
   }
 
+  // Memoized filtered + sorted users — instant tab switching, no refetch
+  const filteredUsers = useMemo(() => {
+    return users
+      .filter(user => {
+        const roleValue = (user.role || '').toString().toLowerCase()
+        const deptValue = (user.department || '').toString()
+        const nameValue = (user.name || '').toString().toLowerCase()
+        const emailValue = (user.email || '').toString().toLowerCase()
+        const searchValue = searchQuery.toLowerCase()
+
+        const matchesRole = roleFilter === 'All Roles' || roleValue === roleFilter.toLowerCase()
+        const matchesDepartment = departmentFilter === 'All Departments' || deptValue === departmentFilter
+        const matchesSearch = searchQuery === '' || nameValue.includes(searchValue) || emailValue.includes(searchValue)
+
+        return matchesRole && matchesDepartment && matchesSearch
+      })
+      .sort((a, b) => {
+        const nameA = (a.name || '').toString().toLowerCase()
+        const nameB = (b.name || '').toString().toLowerCase()
+        return nameA.localeCompare(nameB)
+      })
+  }, [users, roleFilter, departmentFilter, searchQuery])
+
   // Fetch users and organizational data from Supabase
   useEffect(() => {
     mountedRef.current = true
@@ -88,71 +109,77 @@ function Users() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (forceRefresh = false) => {
     try {
-      setLoading(true)
-      
-      // Fetch users without joins for better performance (paginate to get all rows)
-      const pageSize = 1000
-      let page = 0
-      let allRows = []
-      let hasMore = true
-
-      while (hasMore) {
-        const from = page * pageSize
-        const to = from + pageSize - 1
-
-        const { data: pageRows, error } = await supabase
-          .from('users')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .range(from, to)
-
-        if (error) {
-          throw error
-        }
-
-        allRows = allRows.concat(pageRows || [])
-        hasMore = (pageRows || []).length === pageSize
-        page += 1
+      // Only show loading spinner when there's no cached data yet
+      if (users.length === 0 || forceRefresh) {
+        setLoading(true)
       }
 
-      const data = allRows
-      
-      // Get unique designation and department IDs
-      const designationIds = [...new Set(data?.map(u => u.designation_id).filter(Boolean))]
-      const departmentIds = [...new Set(data?.map(u => u.department_id).filter(Boolean))]
-      
-      // Fetch designations and departments in parallel if there are any
-      const [designationsData, departmentsData] = await Promise.all([
-        designationIds.length > 0 
-          ? supabase.from('designations').select('id, designation_name').in('id', designationIds)
-          : Promise.resolve({ data: [] }),
-        departmentIds.length > 0
-          ? supabase.from('departments').select('id, department_name').in('id', departmentIds)
-          : Promise.resolve({ data: [] })
-      ])
-      
-      // Create lookup maps for faster access
-      const designationMap = new Map(designationsData.data?.map(d => [d.id, d.designation_name]) || [])
-      const departmentMap = new Map(departmentsData.data?.map(d => [d.id, d.department_name]) || [])
-      
-      // Transform data to match component expectations
-      const transformedUsers = data?.map(user => ({
-        id: user.id,
-        name: user.full_name || 'N/A',
-        email: user.email,
-        phone: user.phone,
-        designation: designationMap.get(user.designation_id) || 'N/A',
-        department: departmentMap.get(user.department_id) || 'N/A',
-        role: user.role || 'user',
-        employeeId: user.employee_id,
-        progress: 0, // This would come from progress tracking table
-        createdAt: new Date(user.created_at).toISOString().split('T')[0]
-      })) || []
-      
+      const usersResult = await cachedFetch('users_screen_data', async () => {
+        // Fetch users without joins for better performance (paginate to get all rows)
+        const pageSize = 1000
+        let page = 0
+        let allRows = []
+        let hasMore = true
+
+        while (hasMore) {
+          const from = page * pageSize
+          const to = from + pageSize - 1
+
+          const { data: pageRows, error } = await supabase
+            .from('users')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(from, to)
+
+          if (error) {
+            throw error
+          }
+
+          allRows = allRows.concat(pageRows || [])
+          hasMore = (pageRows || []).length === pageSize
+          page += 1
+        }
+
+        const data = allRows
+        
+        // Get unique designation and department IDs
+        const designationIds = [...new Set(data?.map(u => u.designation_id).filter(Boolean))]
+        const departmentIds = [...new Set(data?.map(u => u.department_id).filter(Boolean))]
+        
+        // Fetch designations and departments in parallel if there are any
+        const [designationsData, departmentsData] = await Promise.all([
+          designationIds.length > 0 
+            ? supabase.from('designations').select('id, designation_name').in('id', designationIds)
+            : Promise.resolve({ data: [] }),
+          departmentIds.length > 0
+            ? supabase.from('departments').select('id, department_name').in('id', departmentIds)
+            : Promise.resolve({ data: [] })
+        ])
+        
+        // Create lookup maps for faster access
+        const designationMap = new Map(designationsData.data?.map(d => [d.id, d.designation_name]) || [])
+        const departmentMap = new Map(departmentsData.data?.map(d => [d.id, d.department_name]) || [])
+        
+        // Transform data to match component expectations
+        return data?.map(user => ({
+          id: user.id,
+          name: user.full_name || 'N/A',
+          email: user.email,
+          phone: user.phone,
+          designation: designationMap.get(user.designation_id) || 'N/A',
+          department: departmentMap.get(user.department_id) || 'N/A',
+          role: user.role || 'user',
+          employeeId: user.employee_id,
+          progress: 0,
+          createdAt: new Date(user.created_at).toISOString().split('T')[0]
+        })) || []
+      }, TTL.MEDIUM, forceRefresh)
+
       if (mountedRef.current) {
-        setUsers(transformedUsers)
+        const usersData = usersResult?.data || usersResult || []
+        setUsers(Array.isArray(usersData) ? usersData : [])
         setErrorMessage('')
       }
     } catch (error) {
@@ -436,8 +463,8 @@ function Users() {
         alert('User created successfully!')
       }
 
-      // Refresh users list
-      await fetchUsers()
+      // Refresh users list (force cache refresh)
+      await fetchUsers(true)
       
       // Reset form and close modal
       setFormData({
@@ -537,8 +564,8 @@ function Users() {
 
       alert('User updated successfully!')
 
-      // Refresh users list
-      await fetchUsers()
+      // Refresh users list (force cache refresh)
+      await fetchUsers(true)
       
       // Reset form and close modal
       setFormData({
@@ -589,7 +616,7 @@ function Users() {
         return
       }
 
-      await fetchUsers()
+      await fetchUsers(true)
       alert('User deleted')
     } catch (err) {
       alert('Failed to delete user: ' + (err.message || 'Unknown error'))
@@ -745,7 +772,7 @@ function Users() {
       }
 
       setBulkUploadResults(results)
-      await fetchUsers()
+      await fetchUsers(true)
 
     } catch (error) {
       alert(`Failed to process file: ${error.message}`)
@@ -838,14 +865,7 @@ function Users() {
   }
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-
-      {/* Main Content */}
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={toggleSidebar} />
-
-        {/* Users Main Content */}
+    <>
         <main className="users-main">
           <section className="users-header">
             <div>
@@ -853,7 +873,7 @@ function Users() {
               <p>Manage all users, their roles, and progress.</p>
             </div>
             <div className="action-buttons">
-              <button className="btn btn-secondary" onClick={fetchUsers} disabled={loading}>
+              <button className="btn btn-secondary" onClick={() => fetchUsers(true)} disabled={loading}>
                 <i className={`fa-solid fa-refresh ${loading ? 'fa-spin' : ''}`}></i>Refresh
               </button>
               <button className="btn btn-secondary" onClick={() => setBulkUploadModalOpen(true)}>
@@ -944,29 +964,10 @@ function Users() {
                       </td>
                     </tr>
                   ) : (
-                    users
-                      .filter(user => {
-                        const roleValue = (user.role || '').toString().toLowerCase()
-                        const deptValue = (user.department || '').toString()
-                        const nameValue = (user.name || '').toString().toLowerCase()
-                        const emailValue = (user.email || '').toString().toLowerCase()
-                        const searchValue = searchQuery.toLowerCase()
-
-                        const matchesRole = roleFilter === 'All Roles' || roleValue === roleFilter.toLowerCase()
-                        const matchesDepartment = departmentFilter === 'All Departments' || deptValue === departmentFilter
-                        const matchesSearch = searchQuery === '' || nameValue.includes(searchValue) || emailValue.includes(searchValue)
-
-                        return matchesRole && matchesDepartment && matchesSearch
-                      })
-                      .sort((a, b) => {
-                        const nameA = (a.name || '').toString().toLowerCase()
-                        const nameB = (b.name || '').toString().toLowerCase()
-                        return nameA.localeCompare(nameB)
-                      })
+                    filteredUsers
                       .map(user => (
                       <tr key={user.id} className="user-row" onClick={() => openDrawer(user)}>
                         <td className="user-cell">
-                          <div className="user-avatar">{getInitials(user.name)}</div>
                           <div>
                             <div className="user-name">{user.name}</div>
                             <div className="user-email">{user.email}</div>
@@ -1003,7 +1004,6 @@ function Users() {
             </div>
           </section>
         </main>
-      </div>
 
       {/* User Details Drawer */}
       <div className={`drawer-overlay ${drawerOpen ? 'active' : ''}`} onClick={closeDrawer}></div>
@@ -1724,7 +1724,7 @@ function Users() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

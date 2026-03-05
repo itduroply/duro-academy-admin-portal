@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import './VideoProgress.css'
@@ -349,13 +347,7 @@ function VideoProgress() {
   }
 
   return (
-    <div className="video-progress-panel">
-      <Sidebar />
-      <div className="vp-main-wrapper">
-        <Header
-          toggleSidebar={toggleSidebar}
-          breadcrumbItems={breadcrumbItems}
-        />
+    <>
         <div className="video-progress-main">
           {/* Page Header */}
           <div className="vp-page-header">
@@ -603,7 +595,6 @@ function VideoProgress() {
             )}
           </div>
         </div>
-      </div>
 
       {/* Detail Slide-over Panel */}
       {detailOpen && selectedRecord && (
@@ -724,7 +715,7 @@ function VideoProgress() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

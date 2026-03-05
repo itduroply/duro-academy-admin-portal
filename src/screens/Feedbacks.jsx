@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cacheSet, cacheGet, cachedFetch, TTL } from '../utils/cacheDB'
 import './Feedbacks.css'
@@ -146,11 +144,7 @@ function Feedbacks() {
   }
 
   return (
-    <div className="feedbacks-container">
-      <Sidebar />
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={handleMenuToggle} />
-
+    <>
         <div className="content-area">
           {/* Filters Row */}
           <div className="feedback-filters">
@@ -236,7 +230,6 @@ function Feedbacks() {
             )}
           </div>
         </div>
-      </div>
 
       {/* Slide Panel */}
       {panelOpen && selected && (
@@ -284,7 +277,7 @@ function Feedbacks() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

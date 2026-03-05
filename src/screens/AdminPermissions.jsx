@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { NAV_ITEMS, SCREENS } from '../config/permissions'
@@ -146,10 +144,6 @@ function AdminPermissions() {
   ]
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} />
         <div className="ap-content">
           {/* Left Panel: Admin List */}
           <div className="ap-admin-list-panel">
@@ -287,8 +281,6 @@ function AdminPermissions() {
             )}
           </div>
         </div>
-      </div>
-    </div>
   )
 }
 

@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
-import Header from '../components/Header';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, TTL } from '../utils/cacheDB';
 import './QuizBuilder.css';
@@ -331,15 +329,6 @@ const QuizBuilder = () => {
   };
 
   return (
-    <div className="quiz-builder-panel">
-      <Sidebar />
-      
-      <div className="main-content">
-        <Header 
-          breadcrumbItems={breadcrumbItems}
-          onMenuToggle={handleMenuToggle}
-        />
-
         <main className="quiz-builder-main">
             {/* Page Header */}
             <section className="quiz-builder-header">
@@ -501,8 +490,6 @@ const QuizBuilder = () => {
               </button>
             </section>
         </main>
-      </div>
-    </div>
   );
 };
 

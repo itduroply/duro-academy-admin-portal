@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import './ModuleRequests.css'
@@ -218,12 +216,6 @@ function ModuleRequests() {
   }
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={toggleSidebar} />
-
         <main className="module-requests-main">
           <section className="requests-header">
             <div>
@@ -477,8 +469,6 @@ function ModuleRequests() {
             )}
           </div>
         </main>
-      </div>
-    </div>
   )
 }
 

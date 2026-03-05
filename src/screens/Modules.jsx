@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import './Modules.css'
@@ -370,14 +368,7 @@ function Modules() {
   }
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-
-      {/* Main Content */}
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={toggleSidebar} />
-
-        {/* Modules Main Content */}
+    <>
         <main className="modules-main">
           <section className="modules-header">
             <div>
@@ -503,7 +494,6 @@ function Modules() {
             </div>
           </section>
         </main>
-      </div>
 
       {/* Videos Drawer */}
       <div className={`drawer-overlay ${drawerOpen ? 'active' : ''}`} onClick={closeDrawer}></div>
@@ -896,7 +886,7 @@ function Modules() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

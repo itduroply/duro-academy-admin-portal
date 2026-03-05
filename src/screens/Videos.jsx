@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import './Videos.css'
@@ -232,11 +230,7 @@ function Videos() {
   useEffect(() => { setCurrentPage(1) }, [searchTerm, moduleFilter])
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} />
-
+    <>
         <main className="vid-main">
           {/* Header */}
           <section className="vid-header">
@@ -574,8 +568,7 @@ function Videos() {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </>
   )
 }
 

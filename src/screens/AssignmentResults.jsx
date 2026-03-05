@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import './AssignmentResults.css'
@@ -180,12 +178,6 @@ function AssignmentResults() {
   }
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={toggleSidebar} />
-
         <main className="assignment-results-main">
           <section className="assignment-results-header">
             <div>
@@ -387,8 +379,6 @@ function AssignmentResults() {
             </div>
           )}
         </main>
-      </div>
-    </div>
   )
 }
 

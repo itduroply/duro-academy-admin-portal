@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react'
 import Login from './screens/Login'
 import ForgotPassword from './screens/ForgotPassword'
 import ProtectedRoute from './components/ProtectedRoute'
+import AdminLayout from './components/AdminLayout'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { AuthProvider } from './contexts/AuthContext'
 import { SCREENS } from './config/permissions'
@@ -30,13 +31,25 @@ const LoadingFallback = () => (
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    height: '100vh',
+    height: '100%',
+    minHeight: '200px',
     fontSize: '18px',
     color: '#6B7280'
   }}>
     <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: '8px' }}></i>
     Loading...
   </div>
+)
+
+// Helper to wrap lazy-loaded screens with Suspense + ErrorBoundary + permission check
+const Screen = ({ screen, children }) => (
+  <ProtectedRoute requiredScreen={screen}>
+    <ErrorBoundary>
+      <Suspense fallback={<LoadingFallback />}>
+        {children}
+      </Suspense>
+    </ErrorBoundary>
+  </ProtectedRoute>
 )
 
 function App() {
@@ -47,25 +60,30 @@ function App() {
     <AuthProvider>
       <Router basename={resolvedBase}>
         <Routes>
-          {/* Root route redirect */}
+          {/* Public routes */}
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/dashboard" element={<ProtectedRoute requiredScreen={SCREENS.DASHBOARD}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Dashboard /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/modules" element={<ProtectedRoute requiredScreen={SCREENS.MODULES}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Modules /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/videos" element={<ProtectedRoute requiredScreen={SCREENS.VIDEOS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Videos /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/module-requests" element={<ProtectedRoute requiredScreen={SCREENS.MODULE_REQUESTS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><ModuleRequests /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/users" element={<ProtectedRoute requiredScreen={SCREENS.USERS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Users /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/banners" element={<ProtectedRoute requiredScreen={SCREENS.BANNERS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Banners /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/feedbacks" element={<ProtectedRoute requiredScreen={SCREENS.FEEDBACKS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Feedbacks /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/assessments" element={<ProtectedRoute requiredScreen={SCREENS.ASSESSMENTS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Assessments /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/quiz-builder" element={<ProtectedRoute requiredScreen={SCREENS.QUIZ_BUILDER}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><QuizBuilder /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/quiz-builder/:id" element={<ProtectedRoute requiredScreen={SCREENS.QUIZ_BUILDER}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><QuizBuilder /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/notifications" element={<ProtectedRoute requiredScreen={SCREENS.NOTIFICATIONS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><Notifications /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/assignment-results" element={<ProtectedRoute requiredScreen={SCREENS.ASSIGNMENT_RESULTS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><AssignmentResults /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/video-progress" element={<ProtectedRoute requiredScreen={SCREENS.VIDEO_PROGRESS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><VideoProgress /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/active-logins" element={<ProtectedRoute requiredScreen={SCREENS.ACTIVE_LOGINS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><ActiveLogins /></Suspense></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/admin-permissions" element={<ProtectedRoute requiredScreen={SCREENS.ADMIN_PERMISSIONS}><ErrorBoundary><Suspense fallback={<LoadingFallback />}><AdminPermissions /></Suspense></ErrorBoundary></ProtectedRoute>} />
+
+          {/* All admin routes share a single mounted layout */}
+          <Route element={<AdminLayout />}>
+            <Route path="/dashboard" element={<Screen screen={SCREENS.DASHBOARD}><Dashboard /></Screen>} />
+            <Route path="/modules" element={<Screen screen={SCREENS.MODULES}><Modules /></Screen>} />
+            <Route path="/videos" element={<Screen screen={SCREENS.VIDEOS}><Videos /></Screen>} />
+            <Route path="/module-requests" element={<Screen screen={SCREENS.MODULE_REQUESTS}><ModuleRequests /></Screen>} />
+            <Route path="/users" element={<Screen screen={SCREENS.USERS}><Users /></Screen>} />
+            <Route path="/banners" element={<Screen screen={SCREENS.BANNERS}><Banners /></Screen>} />
+            <Route path="/feedbacks" element={<Screen screen={SCREENS.FEEDBACKS}><Feedbacks /></Screen>} />
+            <Route path="/assessments" element={<Screen screen={SCREENS.ASSESSMENTS}><Assessments /></Screen>} />
+            <Route path="/quiz-builder" element={<Screen screen={SCREENS.QUIZ_BUILDER}><QuizBuilder /></Screen>} />
+            <Route path="/quiz-builder/:id" element={<Screen screen={SCREENS.QUIZ_BUILDER}><QuizBuilder /></Screen>} />
+            <Route path="/notifications" element={<Screen screen={SCREENS.NOTIFICATIONS}><Notifications /></Screen>} />
+            <Route path="/assignment-results" element={<Screen screen={SCREENS.ASSIGNMENT_RESULTS}><AssignmentResults /></Screen>} />
+            <Route path="/video-progress" element={<Screen screen={SCREENS.VIDEO_PROGRESS}><VideoProgress /></Screen>} />
+            <Route path="/active-logins" element={<Screen screen={SCREENS.ACTIVE_LOGINS}><ActiveLogins /></Screen>} />
+            <Route path="/admin-permissions" element={<Screen screen={SCREENS.ADMIN_PERMISSIONS}><AdminPermissions /></Screen>} />
+          </Route>
+
           {/* Catch-all route for 404s */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

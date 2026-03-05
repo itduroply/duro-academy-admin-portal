@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import './ActiveLogins.css'
@@ -326,15 +324,7 @@ function ActiveLogins() {
   }
 
   return (
-    <div className="al-panel">
-      <Sidebar />
-      <div className="al-main">
-        <Header
-          title="Active Logins"
-          breadcrumbItems={breadcrumbItems}
-          toggleSidebar={toggleSidebar}
-        />
-
+    <>
         <div className="al-content">
           {/* Page Header */}
           <div className="al-page-header">
@@ -579,7 +569,6 @@ function ActiveLogins() {
             )}
           </div>
         </div>
-      </div>
 
       {/* Detail Slide-over */}
       {detailOpen && selectedRecord && (
@@ -659,7 +648,7 @@ function ActiveLogins() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

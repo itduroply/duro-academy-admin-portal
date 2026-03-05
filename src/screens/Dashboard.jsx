@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheSet, cacheGet, TTL } from '../utils/cacheDB'
 import './Dashboard.css'
@@ -363,14 +361,6 @@ function Dashboard() {
   }
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-
-      {/* Main Content */}
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={toggleSidebar} />
-
-        {/* Dashboard Main */}
         <main className="dashboard-main">
           {/* Dashboard Header */}
           <section className="dashboard-header">
@@ -495,8 +485,6 @@ function Dashboard() {
             </section>
           )}
         </main>
-      </div>
-    </div>
   )
 }
 

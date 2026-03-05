@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import Sidebar from '../components/Sidebar';
-import Header from '../components/Header';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB';
 import './Banners.css';
@@ -383,15 +381,7 @@ const Banners = () => {
   };
 
   return (
-    <div className="banners-panel">
-      <Sidebar />
-      
-      <div className="main-content">
-        <Header 
-          breadcrumbItems={breadcrumbItems}
-          onMenuToggle={handleMenuToggle}
-        />
-
+    <>
         <main className="banners-main">
             <div className="section-header">
               <h2 className="page-title">Banners</h2>
@@ -470,7 +460,6 @@ const Banners = () => {
               )}
             </div>
         </main>
-      </div>
 
       {/* Add Banner Modal */}
       {isModalOpen && (
@@ -630,7 +619,7 @@ const Banners = () => {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

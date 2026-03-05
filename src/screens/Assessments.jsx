@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
-import Header from '../components/Header';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, TTL } from '../utils/cacheDB';
 import './Assessments.css';
@@ -201,12 +199,6 @@ function Assessments() {
   });
 
   return (
-    <div className="dashboard-panel">
-      <Sidebar />
-
-      <div className="main-content">
-        <Header breadcrumbItems={breadcrumbItems} onMenuToggle={toggleSidebar} />
-
         <main className="assessments-main">
           <section className="assessments-header">
             <div>
@@ -358,8 +350,6 @@ function Assessments() {
             )}
           </section>
         </main>
-      </div>
-    </div>
   );
 };
 
