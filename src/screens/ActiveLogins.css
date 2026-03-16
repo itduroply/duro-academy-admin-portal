@@ -2,22 +2,9 @@
    Active Logins Report - Styles
    ═══════════════════════════════════════════════════════ */
 
-.al-panel {
-  display: flex;
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
-  background-color: #F3F4F6;
-  font-family: 'Inter', 'Poppins', sans-serif;
-  position: relative;
-}
-
-.al-main {
+.al-content {
   flex: 1;
   overflow-y: auto;
-}
-
-.al-content {
   padding: 2rem;
 }
 
@@ -383,8 +370,6 @@
 
 .al-table thead {
   background: #F8FAFC;
-  position: sticky;
-  top: 0;
   z-index: 5;
 }
 

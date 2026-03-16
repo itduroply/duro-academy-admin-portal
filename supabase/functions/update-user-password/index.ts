@@ -52,7 +52,7 @@ serve(async (req) => {
       .eq('id', user.id)
       .single()
 
-    if (userError || userData?.role !== 'admin') {
+    if (userError || !['admin', 'super_admin'].includes(userData?.role)) {
       return new Response(
         JSON.stringify({ error: 'Forbidden: Admin access required' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
