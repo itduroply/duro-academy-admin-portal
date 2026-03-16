@@ -22,6 +22,7 @@ const QuizBuilder = lazy(() => import('./screens/QuizBuilder'))
 const AssignmentResults = lazy(() => import('./screens/AssignmentResults'))
 const VideoProgress = lazy(() => import('./screens/VideoProgress'))
 const ActiveLogins = lazy(() => import('./screens/ActiveLogins'))
+const AssignModules = lazy(() => import('./screens/AssignModules'))
 const AdminPermissions = lazy(() => import('./screens/AdminPermissions'))
 const Videos = lazy(() => import('./screens/Videos'))
 
@@ -81,6 +82,7 @@ function App() {
             <Route path="/assignment-results" element={<Screen screen={SCREENS.ASSIGNMENT_RESULTS}><AssignmentResults /></Screen>} />
             <Route path="/video-progress" element={<Screen screen={SCREENS.VIDEO_PROGRESS}><VideoProgress /></Screen>} />
             <Route path="/active-logins" element={<Screen screen={SCREENS.ACTIVE_LOGINS}><ActiveLogins /></Screen>} />
+            <Route path="/assign-modules" element={<Screen screen={SCREENS.ASSIGN_MODULES}><AssignModules /></Screen>} />
             <Route path="/admin-permissions" element={<Screen screen={SCREENS.ADMIN_PERMISSIONS}><AdminPermissions /></Screen>} />
           </Route>
 

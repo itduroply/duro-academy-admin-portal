@@ -18,6 +18,7 @@ const BREADCRUMB_MAP = {
   '/assignment-results': 'Assignment Results',
   '/video-progress': 'Video Progress',
   '/active-logins': 'Active Logins',
+  '/assign-modules': 'Assign Modules',
   '/admin-permissions': 'Admin Permissions',
 }
 

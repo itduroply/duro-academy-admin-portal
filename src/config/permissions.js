@@ -23,6 +23,7 @@ export const SCREENS = {
   ASSIGNMENT_RESULTS: 'assignment-results',
   VIDEO_PROGRESS: 'video-progress',
   ACTIVE_LOGINS: 'active-logins',
+  ASSIGN_MODULES: 'assign-modules',
   ANALYTICS: 'analytics',
   SETTINGS: 'settings',
   ADMIN_PERMISSIONS: 'admin-permissions',
@@ -51,6 +52,7 @@ export const ROLE_PERMISSIONS = {
     SCREENS.QUIZ_BUILDER,
     SCREENS.ASSIGNMENT_RESULTS,
     SCREENS.VIDEO_PROGRESS,
+    SCREENS.ASSIGN_MODULES,
   ],
 }
 
@@ -70,6 +72,7 @@ export const NAV_ITEMS = [
   { path: '/assignment-results', label: 'Assignment Results', icon: 'fa-solid fa-clipboard-list', screen: SCREENS.ASSIGNMENT_RESULTS },
   { path: '/video-progress', label: 'Video Progress', icon: 'fa-solid fa-play-circle', screen: SCREENS.VIDEO_PROGRESS },
   { path: '/active-logins', label: 'Active Logins', icon: 'fa-solid fa-right-to-bracket', screen: SCREENS.ACTIVE_LOGINS },
+  { path: '/assign-modules', label: 'Assign Modules', icon: 'fa-solid fa-tasks', screen: SCREENS.ASSIGN_MODULES },
   { path: '/admin-permissions', label: 'Admin Permissions', icon: 'fa-solid fa-shield-halved', screen: SCREENS.ADMIN_PERMISSIONS },
   { path: '/analytics', label: 'Analytics', icon: 'fa-solid fa-chart-line', screen: SCREENS.ANALYTICS },
 ]
