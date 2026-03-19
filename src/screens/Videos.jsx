@@ -44,6 +44,49 @@ function Videos() {
     { label: 'Videos', link: false }
   ]
 
+  // Helper function to convert HH:MM:SS time to seconds
+  const timeToSeconds = (timeStr) => {
+    if (!timeStr || !timeStr.trim()) return null
+    
+    const parts = timeStr.split(':')
+    if (parts.length === 3) {
+      // HH:MM:SS format
+      const hours = parseInt(parts[0], 10) || 0
+      const minutes = parseInt(parts[1], 10) || 0
+      const seconds = parseInt(parts[2], 10) || 0
+      return (hours * 3600) + (minutes * 60) + seconds
+    } else if (parts.length === 2) {
+      // MM:SS format
+      const minutes = parseInt(parts[0], 10) || 0
+      const seconds = parseInt(parts[1], 10) || 0
+      return (minutes * 60) + seconds
+    }
+    return null
+  }
+
+  // Helper function to convert seconds to HH:MM:SS
+  const secondsToTime = (seconds) => {
+    if (!seconds || isNaN(seconds)) return ''
+    const hours = Math.floor(seconds / 3600)
+    const mins = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+    return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+
+  // Helper function to format duration for display
+  const formatDuration = (seconds) => {
+    if (!seconds || isNaN(seconds)) return '—'
+    const hours = Math.floor(seconds / 3600)
+    const mins = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+    
+    if (hours > 0) {
+      return `${hours}h ${mins}m ${secs}s`
+    } else {
+      return `${mins}m ${secs}s`
+    }
+  }
+
   useEffect(() => {
     mountedRef.current = true
     fetchAll()
@@ -129,7 +172,7 @@ function Videos() {
       module_id: video.module_id || '',
       bunny_video_id: video.bunny_video_id || '',
       playback_url: video.playback_url || '',
-      duration: video.duration || '',
+      duration: secondsToTime(video.duration),
       video_order: video.video_order != null ? String(video.video_order) : '',
       quiz_id: video.quiz_id || '',
     })
@@ -151,7 +194,7 @@ function Videos() {
         module_id: formData.module_id || null,
         bunny_video_id: formData.bunny_video_id.trim(),
         playback_url: formData.playback_url.trim(),
-        duration: formData.duration.trim() || null,
+        duration: timeToSeconds(formData.duration),
         video_order: formData.video_order ? parseInt(formData.video_order, 10) : null,
         quiz_id: formData.quiz_id || null,
       }
@@ -323,7 +366,7 @@ function Videos() {
                           </span>
                         </td>
                         <td><code className="vid-code">{video.bunny_video_id}</code></td>
-                        <td>{video.duration || '—'}</td>
+                        <td>{formatDuration(video.duration)}</td>
                         <td className="text-center">{video.video_order ?? '—'}</td>
                         <td>{formatDate(video.created_at)}</td>
                         <td className="text-right">
@@ -413,7 +456,7 @@ function Videos() {
                     </div>
                     <div className="vid-detail-item">
                       <label>Duration</label>
-                      <span>{selectedVideo.duration || '—'}</span>
+                      <span>{formatDuration(selectedVideo.duration)}</span>
                     </div>
                   </div>
                   <div className="vid-detail-row">
@@ -520,12 +563,14 @@ function Videos() {
                 {/* Duration + Order (row) */}
                 <div className="vid-form-row">
                   <div className="vid-form-group">
-                    <label>Duration</label>
+                    <label>Duration (HH:MM:SS)</label>
                     <input
                       type="text"
-                      placeholder="e.g. 00:12:35"
+                      placeholder="e.g. 02:48:14"
                       value={formData.duration}
                       onChange={(e) => setFormData(f => ({ ...f, duration: e.target.value }))}
+                      pattern="^([0-9]{1,2}):([0-5][0-9]):([0-5][0-9])$"
+                      title="Enter duration in HH:MM:SS format (e.g., 02:48:14)"
                     />
                   </div>
                   <div className="vid-form-group">
