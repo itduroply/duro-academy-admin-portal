@@ -15,12 +15,14 @@ function VideoProgress() {
   const [videos, setVideos] = useState([])
   const [modules, setModules] = useState([])
   const [branches, setBranches] = useState([])
+  const [departments, setDepartments] = useState([])
 
   // Filters
   const [searchUser, setSearchUser] = useState('')
   const [searchVideo, setSearchVideo] = useState('')
   const [filterBranch, setFilterBranch] = useState('')
   const [filterModule, setFilterModule] = useState('')
+  const [filterDepartment, setFilterDepartment] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterDate, setFilterDate] = useState('')
   const [customDateFrom, setCustomDateFrom] = useState('')
@@ -54,7 +56,7 @@ function VideoProgress() {
       setLoading(true)
       setError(null)
 
-      const [usersResult, videosResult, modulesResult, branchesResult] = await Promise.all([
+      const [usersResult, videosResult, modulesResult, branchesResult, departmentsResult] = await Promise.all([
         cachedFetch('users_full_vp', async () => {
           const { data, error } = await supabase
             .from('users')
@@ -85,7 +87,15 @@ function VideoProgress() {
             .order('branch_name')
           if (error) throw error
           return data || []
-        }, TTL.VERY_LONG)
+        }, TTL.VERY_LONG),
+        cachedFetch('departments_lookup', async () => {
+          const { data, error } = await supabase
+            .from('departments')
+            .select('id, department_name')
+            .order('department_name', { ascending: true })
+          if (error) throw error
+          return data || []
+        }, TTL.LONG)
       ])
 
       if (!mountedRef.current) return
@@ -94,9 +104,10 @@ function VideoProgress() {
       setVideos(videosResult.data)
       setModules(modulesResult.data)
       setBranches(branchesResult.data)
+      setDepartments(departmentsResult.data || [])
 
       // Try fetching user_video_progress table
-      await fetchVideoProgress(usersResult.data, videosResult.data, modulesResult.data, branchesResult.data)
+      await fetchVideoProgress(usersResult.data, videosResult.data, modulesResult.data, branchesResult.data, departmentsResult.data)
     } catch (err) {
       console.error('[VideoProgress] Error loading data:', err)
       if (mountedRef.current) {
@@ -107,7 +118,7 @@ function VideoProgress() {
     }
   }
 
-  const fetchVideoProgress = async (usersData, videosData, modulesData, branchesData) => {
+  const fetchVideoProgress = async (usersData, videosData, modulesData, branchesData, departmentsData) => {
     try {
       const { data, error } = await supabase
         .from('user_video_progress')
@@ -120,12 +131,14 @@ function VideoProgress() {
       const videoMap = new Map(videosData.map(v => [v.id, v]))
       const moduleMap = new Map(modulesData.map(m => [m.id, m]))
       const branchMap = new Map(branchesData.map(b => [b.id, b]))
+      const departmentMap = new Map((departmentsData || []).map(d => [d.id, d]))
 
       const mapped = (data || []).map(record => {
         const user = userMap.get(record.user_id) || {}
         const video = videoMap.get(record.video_id) || {}
         const module = moduleMap.get(video.module_id) || {}
         const branch = branchMap.get(user.branch_id) || {}
+        const department = departmentMap.get(user.department_id) || {}
 
         const watchedSeconds = parseInt(record.watched_duration, 10) || 0
         const totalSeconds = parseDuration(video.duration)
@@ -144,6 +157,8 @@ function VideoProgress() {
           employeeId: user.employee_id || '',
           branchId: user.branch_id,
           branchName: branch.branch_name || 'N/A',
+          departmentId: user.department_id,
+          departmentName: department.department_name || 'N/A',
           videoId: record.video_id,
           videoTitle: video.title || 'Unknown Video',
           moduleId: video.module_id,
@@ -187,6 +202,9 @@ function VideoProgress() {
     if (filterModule) {
       data = data.filter(r => r.moduleName === filterModule)
     }
+    if (filterDepartment) {
+      data = data.filter(r => r.departmentName === filterDepartment)
+    }
     if (filterStatus) {
       data = data.filter(r => r.status === filterStatus)
     }
@@ -225,7 +243,7 @@ function VideoProgress() {
     }
 
     return data
-  }, [progressData, searchUser, searchVideo, filterBranch, filterModule, filterStatus, filterDate, customDateFrom, customDateTo])
+  }, [progressData, searchUser, searchVideo, filterBranch, filterModule, filterDepartment, filterStatus, filterDate, customDateFrom, customDateTo])
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize))
   const paginatedData = useMemo(() => {
@@ -234,17 +252,19 @@ function VideoProgress() {
   }, [filteredData, currentPage])
 
   // Reset page on filter change
-  useEffect(() => { setCurrentPage(1) }, [searchUser, searchVideo, filterBranch, filterModule, filterStatus, filterDate, customDateFrom, customDateTo])
+  useEffect(() => { setCurrentPage(1) }, [searchUser, searchVideo, filterBranch, filterModule, filterDepartment, filterStatus, filterDate, customDateFrom, customDateTo])
 
   // Unique values for dropdowns
   const uniqueBranches = useMemo(() => [...new Set(progressData.map(r => r.branchName).filter(Boolean).filter(b => b !== 'N/A'))].sort(), [progressData])
   const uniqueModules = useMemo(() => [...new Set(progressData.map(r => r.moduleName).filter(Boolean).filter(m => m !== 'N/A'))].sort(), [progressData])
+  const uniqueDepartments = useMemo(() => [...new Set(progressData.map(r => r.departmentName).filter(Boolean).filter(d => d !== 'N/A'))].sort(), [progressData])
 
   const resetFilters = () => {
     setSearchUser('')
     setSearchVideo('')
     setFilterBranch('')
     setFilterModule('')
+    setFilterDepartment('')
     setFilterStatus('')
     setFilterDate('')
     setCustomDateFrom('')
@@ -399,6 +419,13 @@ function VideoProgress() {
                 <select value={filterModule} onChange={(e) => setFilterModule(e.target.value)}>
                   <option value="">All Modules</option>
                   {uniqueModules.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <i className="fa-solid fa-chevron-down"></i>
+              </div>
+              <div className="vp-select-wrapper">
+                <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)}>
+                  <option value="">All Departments</option>
+                  {uniqueDepartments.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
                 <i className="fa-solid fa-chevron-down"></i>
               </div>

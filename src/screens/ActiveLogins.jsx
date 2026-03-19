@@ -12,11 +12,13 @@ function ActiveLogins() {
   // Data
   const [deviceTokens, setDeviceTokens] = useState([])
   const [users, setUsers] = useState([])
+  const [departments, setDepartments] = useState([])
 
   // Filters
   const [searchUser, setSearchUser] = useState('')
   const [filterPlatform, setFilterPlatform] = useState('')
   const [filterDate, setFilterDate] = useState('')
+  const [filterDepartment, setFilterDepartment] = useState('')
   const [customDateFrom, setCustomDateFrom] = useState('')
   const [customDateTo, setCustomDateTo] = useState('')
 
@@ -48,11 +50,11 @@ function ActiveLogins() {
       setLoading(true)
       setError(null)
 
-      const [usersResponse, tokensResult] = await Promise.all([
+      const [usersResponse, tokensResult, departmentsResponse] = await Promise.all([
         cachedFetch('users_full_al', async () => {
           const { data, error } = await supabase
             .from('users')
-            .select('id, full_name, email, employee_id, phone, branch_id, role')
+            .select('id, full_name, email, employee_id, phone, branch_id, role, department_id')
           if (error) throw error
           return data || []
         }, TTL.MEDIUM),
@@ -63,7 +65,15 @@ function ActiveLogins() {
             .order('updated_at', { ascending: false })
           if (error) throw error
           return data || []
-        })()
+        })(),
+        cachedFetch('departments_lookup', async () => {
+          const { data, error } = await supabase
+            .from('departments')
+            .select('id, department_name')
+            .order('department_name', { ascending: true })
+          if (error) throw error
+          return data || []
+        }, TTL.LONG)
       ])
 
       if (!mountedRef.current) return
@@ -71,6 +81,8 @@ function ActiveLogins() {
       const usersData = usersResponse?.data || usersResponse || []
       setUsers(Array.isArray(usersData) ? usersData : [])
       setDeviceTokens(Array.isArray(tokensResult) ? tokensResult : [])
+      const deptData = departmentsResponse?.data || departmentsResponse || []
+      setDepartments(Array.isArray(deptData) ? deptData : [])
     } catch (err) {
       console.error('Error fetching active logins:', err)
       if (mountedRef.current) setError(err.message)
@@ -111,6 +123,7 @@ function ActiveLogins() {
         employee_id: user.employee_id || '-',
         phone: user.phone || '-',
         role: user.role || '-',
+        department_id: user.department_id || null,
         platform: latest.platform,
         platforms: userPlatforms,
         updated_at: latest.updated_at,
@@ -168,6 +181,10 @@ function ActiveLogins() {
       data = data.filter(d => d.platform === filterPlatform)
     }
 
+    if (filterDepartment) {
+      data = data.filter(d => d.department_id && d.department_id.toString() === filterDepartment)
+    }
+
     if (filterDate) {
       const now = new Date()
       let startDate = null
@@ -202,7 +219,7 @@ function ActiveLogins() {
     }
 
     return data
-  }, [enrichedData, searchUser, filterPlatform, filterDate, customDateFrom, customDateTo])
+  }, [enrichedData, searchUser, filterPlatform, filterDepartment, filterDate, customDateFrom, customDateTo])
 
   // Pagination
   const totalPages = Math.ceil(filteredData.length / pageSize)
@@ -213,12 +230,13 @@ function ActiveLogins() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchUser, filterPlatform, filterDate, customDateFrom, customDateTo])
+  }, [searchUser, filterPlatform, filterDepartment, filterDate, customDateFrom, customDateTo])
 
   // Reset filters
   const resetFilters = () => {
     setSearchUser('')
     setFilterPlatform('')
+    setFilterDepartment('')
     setFilterDate('')
     setCustomDateFrom('')
     setCustomDateTo('')
@@ -403,6 +421,15 @@ function ActiveLogins() {
                   <option value="">All Platforms</option>
                   {platforms.map(p => (
                     <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                  ))}
+                </select>
+                <i className="fa-solid fa-chevron-down"></i>
+              </div>
+              <div className="al-select-wrapper">
+                <select value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)}>
+                  <option value="">All Departments</option>
+                  {departments.map(dept => (
+                    <option key={dept.id} value={dept.id}>{dept.department_name}</option>
                   ))}
                 </select>
                 <i className="fa-solid fa-chevron-down"></i>
