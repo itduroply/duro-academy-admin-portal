@@ -120,12 +120,31 @@ function VideoProgress() {
 
   const fetchVideoProgress = async (usersData, videosData, modulesData, branchesData, departmentsData) => {
     try {
-      const { data, error } = await supabase
-        .from('user_video_progress')
-        .select('id, user_id, video_id, watched_duration, completed, last_watched_at')
-        .order('last_watched_at', { ascending: false })
+      // Fetch all rows using pagination (Supabase defaults to 1000 row limit)
+      const PAGE_SIZE = 1000
+      let allData = []
+      let from = 0
+      let hasMore = true
 
-      if (error) throw error
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('user_video_progress')
+          .select('id, user_id, video_id, watched_duration, completed, last_watched_at')
+          .order('last_watched_at', { ascending: false })
+          .range(from, from + PAGE_SIZE - 1)
+
+        if (error) throw error
+
+        if (data && data.length > 0) {
+          allData = allData.concat(data)
+          from += PAGE_SIZE
+          hasMore = data.length === PAGE_SIZE
+        } else {
+          hasMore = false
+        }
+      }
+
+      const data = allData
 
       const userMap = new Map(usersData.map(u => [u.id, u]))
       const videoMap = new Map(videosData.map(v => [v.id, v]))

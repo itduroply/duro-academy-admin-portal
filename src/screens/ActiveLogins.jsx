@@ -11,6 +11,7 @@ function ActiveLogins() {
 
   // Data
   const [deviceTokens, setDeviceTokens] = useState([])
+  const [otpVerifications, setOtpVerifications] = useState([])
   const [users, setUsers] = useState([])
   const [departments, setDepartments] = useState([])
 
@@ -50,21 +51,37 @@ function ActiveLogins() {
       setLoading(true)
       setError(null)
 
-      const [usersResponse, tokensResult, departmentsResponse] = await Promise.all([
-        cachedFetch('users_full_al', async () => {
-          const { data, error } = await supabase
-            .from('users')
-            .select('id, full_name, email, employee_id, phone, branch_id, role, department_id')
+      // Helper to fetch all rows with pagination (Supabase defaults to 1000 row limit)
+      const fetchAllRows = async (table, select, orderCol) => {
+        const PAGE_SIZE = 1000
+        let allData = []
+        let from = 0
+        let hasMore = true
+        while (hasMore) {
+          let query = supabase.from(table).select(select).range(from, from + PAGE_SIZE - 1)
+          if (orderCol) query = query.order(orderCol, { ascending: false })
+          const { data, error } = await query
           if (error) throw error
-          return data || []
+          if (data && data.length > 0) {
+            allData = allData.concat(data)
+            from += PAGE_SIZE
+            hasMore = data.length === PAGE_SIZE
+          } else {
+            hasMore = false
+          }
+        }
+        return allData
+      }
+
+      const [usersResponse, tokensResult, otpResult, departmentsResponse] = await Promise.all([
+        cachedFetch('users_full_al', async () => {
+          return await fetchAllRows('users', 'id, full_name, email, employee_id, phone, branch_id, role, department_id')
         }, TTL.MEDIUM),
         (async () => {
-          const { data, error } = await supabase
-            .from('user_device_tokens')
-            .select('*')
-            .order('updated_at', { ascending: false })
-          if (error) throw error
-          return data || []
+          return await fetchAllRows('user_device_tokens', '*', 'updated_at')
+        })(),
+        (async () => {
+          return await fetchAllRows('otp_verifications', 'id, user_id, is_verified, verified_at, created_at', 'verified_at')
         })(),
         cachedFetch('departments_lookup', async () => {
           const { data, error } = await supabase
@@ -81,6 +98,9 @@ function ActiveLogins() {
       const usersData = usersResponse?.data || usersResponse || []
       setUsers(Array.isArray(usersData) ? usersData : [])
       setDeviceTokens(Array.isArray(tokensResult) ? tokensResult : [])
+      // Filter only verified OTP records
+      const verifiedOtps = (Array.isArray(otpResult) ? otpResult : []).filter(o => o.is_verified === true && o.verified_at)
+      setOtpVerifications(verifiedOtps)
       const deptData = departmentsResponse?.data || departmentsResponse || []
       setDepartments(Array.isArray(deptData) ? deptData : [])
     } catch (err) {
@@ -98,24 +118,54 @@ function ActiveLogins() {
     safeUsers.forEach(u => { userMap[u.id] = u })
 
     // Group tokens by user_id
-    const grouped = {}
+    const tokenGrouped = {}
     const safeTokens = Array.isArray(deviceTokens) ? deviceTokens : []
     safeTokens.forEach(token => {
       const uid = token.user_id || 'unknown'
-      if (!grouped[uid]) grouped[uid] = []
-      grouped[uid].push(token)
+      if (!tokenGrouped[uid]) tokenGrouped[uid] = []
+      tokenGrouped[uid].push(token)
     })
 
+    // Group OTP verifications by user_id
+    const otpGrouped = {}
+    const safeOtps = Array.isArray(otpVerifications) ? otpVerifications : []
+    safeOtps.forEach(otp => {
+      const uid = otp.user_id || 'unknown'
+      if (!otpGrouped[uid]) otpGrouped[uid] = []
+      otpGrouped[uid].push(otp)
+    })
+
+    // Collect all unique user IDs from both sources
+    const allUserIds = new Set([
+      ...Object.keys(tokenGrouped),
+      ...Object.keys(otpGrouped)
+    ])
+
     // Build one entry per unique user
-    return Object.entries(grouped)
-      .filter(([uid]) => uid !== 'unknown' && userMap[uid]) // Skip unknown/deleted users
-      .map(([uid, sessions]) => {
+    return [...allUserIds]
+      .filter(uid => uid !== 'unknown' && userMap[uid])
+      .map(uid => {
       const user = userMap[uid] || {}
-      // Sort sessions by updated_at descending
-      sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-      const latest = sessions[0]
-      // Collect unique platforms
-      const userPlatforms = [...new Set(sessions.map(s => s.platform).filter(Boolean))]
+      const deviceSessions = tokenGrouped[uid] || []
+      const otpLogins = otpGrouped[uid] || []
+
+      // Sort device sessions by updated_at descending
+      deviceSessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+      // Sort OTP logins by verified_at descending
+      otpLogins.sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at))
+
+      // Collect unique platforms from device tokens
+      const userPlatforms = [...new Set(deviceSessions.map(s => s.platform).filter(Boolean))]
+
+      // Determine latest activity across both sources
+      const latestDeviceTime = deviceSessions.length > 0 ? new Date(deviceSessions[0].updated_at) : null
+      const latestOtpTime = otpLogins.length > 0 ? new Date(otpLogins[0].verified_at) : null
+      let latestTime = null
+      if (latestDeviceTime && latestOtpTime) latestTime = latestDeviceTime > latestOtpTime ? latestDeviceTime : latestOtpTime
+      else latestTime = latestDeviceTime || latestOtpTime
+
+      const latestPlatform = deviceSessions.length > 0 ? deviceSessions[0].platform : (otpLogins.length > 0 ? 'OTP Login' : null)
+
       return {
         user_id: uid,
         full_name: user.full_name || 'Unknown User',
@@ -124,15 +174,17 @@ function ActiveLogins() {
         phone: user.phone || '-',
         role: user.role || '-',
         department_id: user.department_id || null,
-        platform: latest.platform,
-        platforms: userPlatforms,
-        updated_at: latest.updated_at,
-        sessions: sessions,
-        deviceCount: sessions.length,
+        platform: latestPlatform,
+        platforms: userPlatforms.length > 0 ? userPlatforms : (otpLogins.length > 0 ? ['OTP Login'] : []),
+        updated_at: latestTime ? latestTime.toISOString() : null,
+        sessions: deviceSessions,
+        otpLogins: otpLogins,
+        deviceCount: deviceSessions.length,
+        loginCount: otpLogins.length,
         id: uid,
       }
     }).sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-  }, [deviceTokens, users])
+  }, [deviceTokens, otpVerifications, users])
 
   // Get unique platforms
   const platforms = useMemo(() => {
@@ -145,24 +197,29 @@ function ActiveLogins() {
   // KPI stats
   const stats = useMemo(() => {
     const safeTokens = Array.isArray(deviceTokens) ? deviceTokens : []
+    const safeOtps = Array.isArray(otpVerifications) ? otpVerifications : []
     const totalDevices = safeTokens.length
+    const totalOtpLogins = safeOtps.length
     const uniqueUsers = enrichedData.length
     const platformCounts = {}
     safeTokens.forEach(d => {
       const p = d.platform || 'Unknown'
       platformCounts[p] = (platformCounts[p] || 0) + 1
     })
+    if (totalOtpLogins > 0) platformCounts['OTP'] = totalOtpLogins
     const topPlatform = Object.entries(platformCounts).sort((a, b) => b[1] - a[1])[0]
 
-    // Login today — unique users who have at least one session updated today
+    // Login today — unique users who have at least one session or OTP login today
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const loginToday = enrichedData.filter(d => {
-      return d.sessions.some(s => new Date(s.updated_at) >= today)
+      const hasDeviceToday = d.sessions.some(s => new Date(s.updated_at) >= today)
+      const hasOtpToday = d.otpLogins?.some(o => new Date(o.verified_at) >= today)
+      return hasDeviceToday || hasOtpToday
     }).length
 
-    return { totalDevices, uniqueUsers, topPlatform: topPlatform ? topPlatform[0] : '-', loginToday }
-  }, [enrichedData, deviceTokens])
+    return { totalDevices, totalOtpLogins, uniqueUsers, topPlatform: topPlatform ? topPlatform[0] : '-', loginToday }
+  }, [enrichedData, deviceTokens, otpVerifications])
 
   // Apply filters
   const filteredData = useMemo(() => {
@@ -363,6 +420,15 @@ function ActiveLogins() {
           {/* KPI Cards */}
           <div className="al-kpi-row">
             <div className="al-kpi-card">
+              <div className="al-kpi-icon" style={{ background: '#F0FDF4', color: '#22C55E' }}>
+                <i className="fa-solid fa-users"></i>
+              </div>
+              <div>
+                <p className="al-kpi-label">Unique Users</p>
+                <h3 className="al-kpi-value">{stats.uniqueUsers}</h3>
+              </div>
+            </div>
+            <div className="al-kpi-card">
               <div className="al-kpi-icon" style={{ background: '#EFF6FF', color: '#3B82F6' }}>
                 <i className="fa-solid fa-mobile-screen"></i>
               </div>
@@ -372,12 +438,12 @@ function ActiveLogins() {
               </div>
             </div>
             <div className="al-kpi-card">
-              <div className="al-kpi-icon" style={{ background: '#F0FDF4', color: '#22C55E' }}>
-                <i className="fa-solid fa-users"></i>
+              <div className="al-kpi-icon" style={{ background: '#FAF5FF', color: '#8B5CF6' }}>
+                <i className="fa-solid fa-key"></i>
               </div>
               <div>
-                <p className="al-kpi-label">Unique Users</p>
-                <h3 className="al-kpi-value">{stats.uniqueUsers}</h3>
+                <p className="al-kpi-label">OTP Logins</p>
+                <h3 className="al-kpi-value">{stats.totalOtpLogins}</h3>
               </div>
             </div>
             <div className="al-kpi-card">
@@ -390,7 +456,7 @@ function ActiveLogins() {
               </div>
             </div>
             <div className="al-kpi-card">
-              <div className="al-kpi-icon" style={{ background: '#FAF5FF', color: '#A855F7' }}>
+              <div className="al-kpi-icon" style={{ background: '#FFF1F2', color: '#F43F5E' }}>
                 <i className="fa-solid fa-trophy"></i>
               </div>
               <div>
@@ -500,7 +566,7 @@ function ActiveLogins() {
                         <th>#</th>
                         <th>User</th>
                         <th>Platform</th>
-                        <th>Devices</th>
+                        <th>Logins</th>
                         <th>Last Active</th>
                         <th>Status</th>
                         <th className="action-col">Action</th>
@@ -543,7 +609,18 @@ function ActiveLogins() {
                               </div>
                             </td>
                             <td>
-                              <span className="al-device-count">{record.deviceCount}</span>
+                              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                                {record.deviceCount > 0 && (
+                                  <span className="al-device-count" title="Device tokens">
+                                    <i className="fa-solid fa-mobile-screen" style={{ fontSize: '0.65rem', marginRight: '3px' }}></i>{record.deviceCount}
+                                  </span>
+                                )}
+                                {record.loginCount > 0 && (
+                                  <span className="al-device-count al-otp-count" title="OTP logins">
+                                    <i className="fa-solid fa-key" style={{ fontSize: '0.65rem', marginRight: '3px' }}></i>{record.loginCount}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td>
                               <div className="al-cell-text">{formatDate(record.updated_at)}</div>
@@ -639,38 +716,74 @@ function ActiveLogins() {
                     <span className="al-detail-label">Total Devices</span>
                     <span className="al-detail-value">{selectedRecord.deviceCount}</span>
                   </div>
+                  <div>
+                    <span className="al-detail-label">OTP Logins</span>
+                    <span className="al-detail-value">{selectedRecord.loginCount || 0}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Login History */}
-              <div className="al-detail-info-card">
-                <h4>Login History ({selectedRecord.sessions?.length || 0} sessions)</h4>
-                <div className="al-login-history">
-                  {selectedRecord.sessions?.map((session, idx) => (
-                    <div key={session.id || idx} className="al-history-item">
-                      <div className="al-history-dot-line">
-                        <span className={`al-history-dot ${idx === 0 ? 'latest' : ''}`}></span>
-                        {idx < selectedRecord.sessions.length - 1 && <span className="al-history-line"></span>}
-                      </div>
-                      <div className="al-history-content">
-                        <div className="al-history-date">
-                          <i className="fa-regular fa-calendar"></i>
-                          {formatDate(session.updated_at)} at {formatTime(session.updated_at)}
+              {/* OTP Login History */}
+              {selectedRecord.otpLogins?.length > 0 && (
+                <div className="al-detail-info-card">
+                  <h4><i className="fa-solid fa-key" style={{ marginRight: '0.4rem', color: '#8B5CF6' }}></i>OTP Login History ({selectedRecord.otpLogins.length} logins)</h4>
+                  <div className="al-login-history">
+                    {selectedRecord.otpLogins.map((otp, idx) => (
+                      <div key={otp.id || idx} className="al-history-item">
+                        <div className="al-history-dot-line">
+                          <span className={`al-history-dot ${idx === 0 ? 'latest' : ''}`} style={{ background: idx === 0 ? '#8B5CF6' : undefined }}></span>
+                          {idx < selectedRecord.otpLogins.length - 1 && <span className="al-history-line"></span>}
                         </div>
-                        <div className="al-history-meta">
-                          <span className="al-platform-badge" style={{ borderColor: getPlatformColor(session.platform) + '40', background: getPlatformColor(session.platform) + '10', fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>
-                            <i className={getPlatformIcon(session.platform)} style={{ color: getPlatformColor(session.platform), fontSize: '0.7rem' }}></i>
-                            <span style={{ color: getPlatformColor(session.platform) }}>
-                              {session.platform ? session.platform.charAt(0).toUpperCase() + session.platform.slice(1) : 'Unknown'}
+                        <div className="al-history-content">
+                          <div className="al-history-date">
+                            <i className="fa-regular fa-calendar"></i>
+                            {formatDate(otp.verified_at)} at {formatTime(otp.verified_at)}
+                          </div>
+                          <div className="al-history-meta">
+                            <span className="al-platform-badge" style={{ borderColor: '#8B5CF640', background: '#8B5CF610', fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>
+                              <i className="fa-solid fa-shield-check" style={{ color: '#8B5CF6', fontSize: '0.7rem' }}></i>
+                              <span style={{ color: '#8B5CF6' }}>OTP Verified</span>
                             </span>
-                          </span>
-                          <span className="al-history-ago">{timeAgo(session.updated_at)}</span>
+                            <span className="al-history-ago">{timeAgo(otp.verified_at)}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Device Login History */}
+              {selectedRecord.sessions?.length > 0 && (
+                <div className="al-detail-info-card">
+                  <h4><i className="fa-solid fa-mobile-screen" style={{ marginRight: '0.4rem', color: '#3B82F6' }}></i>Device Sessions ({selectedRecord.sessions.length})</h4>
+                  <div className="al-login-history">
+                    {selectedRecord.sessions.map((session, idx) => (
+                      <div key={session.id || idx} className="al-history-item">
+                        <div className="al-history-dot-line">
+                          <span className={`al-history-dot ${idx === 0 ? 'latest' : ''}`}></span>
+                          {idx < selectedRecord.sessions.length - 1 && <span className="al-history-line"></span>}
+                        </div>
+                        <div className="al-history-content">
+                          <div className="al-history-date">
+                            <i className="fa-regular fa-calendar"></i>
+                            {formatDate(session.updated_at)} at {formatTime(session.updated_at)}
+                          </div>
+                          <div className="al-history-meta">
+                            <span className="al-platform-badge" style={{ borderColor: getPlatformColor(session.platform) + '40', background: getPlatformColor(session.platform) + '10', fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>
+                              <i className={getPlatformIcon(session.platform)} style={{ color: getPlatformColor(session.platform), fontSize: '0.7rem' }}></i>
+                              <span style={{ color: getPlatformColor(session.platform) }}>
+                                {session.platform ? session.platform.charAt(0).toUpperCase() + session.platform.slice(1) : 'Unknown'}
+                              </span>
+                            </span>
+                            <span className="al-history-ago">{timeAgo(session.updated_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

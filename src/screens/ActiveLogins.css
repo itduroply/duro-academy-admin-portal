@@ -798,6 +798,11 @@
   font-weight: 600;
 }
 
+.al-otp-count {
+  background: #F5F3FF;
+  color: #7C3AED;
+}
+
 /* Login History Timeline */
 .al-login-history {
   display: flex;
