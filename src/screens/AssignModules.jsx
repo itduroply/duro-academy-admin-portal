@@ -20,6 +20,21 @@ function AssignModules() {
   const [error, setError] = useState(null)
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
   const [selectedUserDetail, setSelectedUserDetail] = useState(null)
+  const [assignType, setAssignType] = useState('single') // 'single' | 'multiple' | 'department'
+  const [selectedUsers, setSelectedUsers] = useState([]) // for multiple mode
+  const [selectedDepartment, setSelectedDepartment] = useState('') // for department mode
+  const [departments, setDepartments] = useState([])
+  const [checkedRows, setCheckedRows] = useState([]) // user ids checked in the table
+  const [categories, setCategories] = useState([])
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [moduleSearchTerm, setModuleSearchTerm] = useState('')
+  const [moduleSelectMode, setModuleSelectMode] = useState('manual') // 'manual' | 'category'
+  const [selectedCategories, setSelectedCategories] = useState([])
+  const [bulkEditModalOpen, setBulkEditModalOpen] = useState(false)
+  const [bulkEditStart, setBulkEditStart] = useState('')
+  const [bulkEditEnd, setBulkEditEnd] = useState('')
+  const [bulkEditStatus, setBulkEditStatus] = useState('')
+  const [editingUserId, setEditingUserId] = useState(null) // null = create mode, userId = edit mode
 
   const breadcrumbItems = [
     { label: 'Home', link: true },
@@ -37,7 +52,7 @@ function AssignModules() {
     try {
       setLoading(true)
       setError(null)
-      await Promise.all([fetchUsers(), fetchModules(), fetchAssignments()])
+      await Promise.all([fetchUsers(), fetchModules(), fetchAssignments(), fetchDepartments(), fetchCategories()])
     } catch (err) {
       console.error('Error fetching data:', err)
       if (mountedRef.current) setError(err.message)
@@ -51,7 +66,7 @@ function AssignModules() {
       const { data } = await cachedFetch('users_assign_modules', async () => {
         const { data, error } = await supabase
           .from('users')
-          .select('id, full_name, email, employee_id, role')
+          .select('id, full_name, email, employee_id, role, department_id')
           .order('full_name', { ascending: true })
         if (error) throw error
         return data || []
@@ -66,12 +81,28 @@ function AssignModules() {
     }
   }
 
+  const fetchCategories = async () => {
+    try {
+      const { data } = await cachedFetch('categories', async () => {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('id, name')
+          .order('name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.LONG)
+      if (mountedRef.current) setCategories(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Error fetching categories:', error)
+    }
+  }
+
   const fetchModules = async () => {
     try {
       const { data } = await cachedFetch('modules_assign', async () => {
         const { data, error } = await supabase
           .from('modules')
-          .select('id, title, description')
+          .select('id, title, description, category_id')
           .order('title', { ascending: true })
         if (error) throw error
         return data || []
@@ -88,24 +119,73 @@ function AssignModules() {
 
   const fetchAssignments = async () => {
     try {
-      const { data, error } = await supabase
-        .from('user_module_assignments')
-        .select(`
-          *,
-          users:user_id (id, full_name, email, employee_id),
-          modules:module_id (id, title)
-        `)
-        .order('created_at', { ascending: false })
+      const allData = []
+      const PAGE_SIZE = 1000
+      let from = 0
+      let hasMore = true
 
-      if (error) throw error
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('user_module_assignments')
+          .select(`
+            *,
+            users:user_id (id, full_name, email, employee_id),
+            modules:module_id (id, title)
+          `)
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE_SIZE - 1)
+
+        if (error) throw error
+
+        if (data && data.length > 0) {
+          allData.push(...data)
+          from += PAGE_SIZE
+          if (data.length < PAGE_SIZE) hasMore = false
+        } else {
+          hasMore = false
+        }
+      }
 
       if (mountedRef.current) {
-        setAssignments(Array.isArray(data) ? data : [])
+        setAssignments(allData)
       }
     } catch (error) {
       console.error('Error fetching assignments:', error)
       // Don't throw - assignments table might not exist yet
     }
+  }
+
+  const fetchDepartments = async () => {
+    try {
+      const { data } = await cachedFetch('departments_list', async () => {
+        const { data, error } = await supabase
+          .from('departments')
+          .select('id, department_name')
+          .order('department_name', { ascending: true })
+        if (error) throw error
+        return data || []
+      }, TTL.SHORT)
+      if (mountedRef.current) setDepartments(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Error fetching departments:', error)
+    }
+  }
+
+  const openEditModal = (group) => {
+    setEditingUserId(group.user?.id)
+    setAssignType('single')
+    setSelectedUser(group.user?.id || '')
+    setSelectedModules(group.assignments.map(a => a.module_id))
+    setStartDate(group.earliestStart || '')
+    setEndDate(group.latestEnd || '')
+    setSelectedUsers([])
+    setSelectedDepartment('')
+    setUserSearchTerm('')
+    setCategoryFilter('')
+    setModuleSearchTerm('')
+    setModuleSelectMode('manual')
+    setSelectedCategories([])
+    setAssignModalOpen(true)
   }
 
   const handleModuleToggle = (moduleId) => {
@@ -119,18 +199,32 @@ function AssignModules() {
   }
 
   const handleSelectAllModules = () => {
-    if (selectedModules.length === modules.length) {
+    if (selectedModules.length === filteredModules.length && filteredModules.length > 0) {
       setSelectedModules([])
     } else {
-      setSelectedModules(modules.map(m => m.id))
+      setSelectedModules(filteredModules.map(m => m.id))
     }
+  }
+
+  const handleUserToggle = (userId) => {
+    setSelectedUsers(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    )
   }
 
   const handleAssign = async (e) => {
     e.preventDefault()
-    
-    if (!selectedUser) {
+
+    if (assignType === 'single' && !selectedUser) {
       alert('Please select a user')
+      return
+    }
+    if (assignType === 'multiple' && selectedUsers.length === 0) {
+      alert('Please select at least one user')
+      return
+    }
+    if (assignType === 'department' && !selectedDepartment) {
+      alert('Please select a department')
       return
     }
 
@@ -152,30 +246,76 @@ function AssignModules() {
     try {
       setLoading(true)
 
-      // Create assignments for each selected module
-      const assignmentsToInsert = selectedModules.map(moduleId => ({
-        user_id: selectedUser,
-        module_id: moduleId,
-        start_date: startDate,
-        end_date: endDate,
-        status: 'active',
-        created_at: new Date().toISOString()
-      }))
+      let targetUserIds = []
+
+      if (assignType === 'single') {
+        targetUserIds = [selectedUser]
+      } else if (assignType === 'multiple') {
+        targetUserIds = selectedUsers
+      } else if (assignType === 'department') {
+        const { data: deptUsers, error: deptError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('department_id', selectedDepartment)
+        if (deptError) throw deptError
+        if (!deptUsers || deptUsers.length === 0) {
+          alert('No users found in the selected department')
+          setLoading(false)
+          return
+        }
+        targetUserIds = deptUsers.map(u => u.id)
+      }
+
+      // In edit mode: delete existing assignments for target users first, then re-insert
+      if (editingUserId) {
+        const { error: delError } = await supabase
+          .from('user_module_assignments')
+          .delete()
+          .in('user_id', targetUserIds)
+        if (delError) throw delError
+      }
+
+      // Build assignments for all target users × selected modules
+      const assignmentsToInsert = []
+      for (const userId of targetUserIds) {
+        for (const moduleId of selectedModules) {
+          assignmentsToInsert.push({
+            user_id: userId,
+            module_id: moduleId,
+            start_date: startDate,
+            end_date: endDate,
+            status: 'active',
+            created_at: new Date().toISOString()
+          })
+        }
+      }
 
       const { error } = await supabase
         .from('user_module_assignments')
-        .insert(assignmentsToInsert)
+        .upsert(assignmentsToInsert, {
+          onConflict: 'user_id,module_id'
+        })
 
       if (error) throw error
 
-      alert('Modules assigned successfully!')
-      
+      const msg = assignType === 'department'
+        ? `Modules assigned to ${targetUserIds.length} user(s) in the department!`
+        : editingUserId
+        ? `Modules updated successfully!`
+        : `Modules assigned successfully to ${targetUserIds.length} user(s)!`
+      alert(msg)
+
       // Reset form
       setSelectedUser('')
+      setSelectedUsers([])
+      setSelectedDepartment('')
       setSelectedModules([])
       setStartDate('')
       setEndDate('')
       setUserSearchTerm('')
+      setCategoryFilter('')
+      setModuleSearchTerm('')
+      setEditingUserId(null)
       setAssignModalOpen(false)
 
       // Invalidate cache and refresh
@@ -186,7 +326,7 @@ function AssignModules() {
       console.error('Error assigning modules:', error)
       alert('Error assigning modules: ' + error.message)
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -210,6 +350,66 @@ function AssignModules() {
       alert('Error removing assignment: ' + error.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleBulkEdit = async (e) => {
+    e.preventDefault()
+    if (checkedRows.length === 0) return
+    if (!bulkEditStart && !bulkEditEnd && !bulkEditStatus) {
+      alert('Please fill at least one field to update.')
+      return
+    }
+    if (bulkEditStart && bulkEditEnd && new Date(bulkEditEnd) < new Date(bulkEditStart)) {
+      alert('End date must be after start date.')
+      return
+    }
+    try {
+      setLoading(true)
+      const updates = {}
+      if (bulkEditStart) updates.start_date = bulkEditStart
+      if (bulkEditEnd) updates.end_date = bulkEditEnd
+      if (bulkEditStatus) updates.status = bulkEditStatus
+      const { error } = await supabase
+        .from('user_module_assignments')
+        .update(updates)
+        .in('user_id', checkedRows)
+      if (error) throw error
+      alert(`Assignments updated for ${checkedRows.length} user(s).`)
+      setBulkEditModalOpen(false)
+      setBulkEditStart('')
+      setBulkEditEnd('')
+      setBulkEditStatus('')
+      setCheckedRows([])
+      await cacheDelete('user_module_assignments')
+      await fetchAssignments()
+    } catch (error) {
+      console.error('Error bulk editing:', error)
+      alert('Error updating assignments: ' + error.message)
+    } finally {
+      if (mountedRef.current) setLoading(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (checkedRows.length === 0) return
+    if (!confirm(`Are you sure you want to delete ALL module assignments for ${checkedRows.length} selected user(s)?`)) return
+    try {
+      setLoading(true)
+      const { error } = await supabase
+        .from('user_module_assignments')
+        .delete()
+        .in('user_id', checkedRows)
+      if (error) throw error
+      alert(`Assignments removed for ${checkedRows.length} user(s).`)
+      setCheckedRows([])
+      await cacheDelete('user_module_assignments')
+      await fetchAssignments()
+    } catch (error) {
+      console.error('Error bulk deleting:', error)
+      alert('Error removing assignments: ' + error.message)
+    } finally {
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -293,6 +493,16 @@ function AssignModules() {
     return Object.values(grouped)
   }, [filteredAssignments])
 
+  // Filter modules in modal based on category and search
+  const filteredModules = useMemo(() => {
+    return modules.filter(m => {
+      const matchesCategory = !categoryFilter || m.category_id === categoryFilter
+      const q = moduleSearchTerm.toLowerCase()
+      const matchesSearch = !q || m.title?.toLowerCase().includes(q) || m.description?.toLowerCase().includes(q)
+      return matchesCategory && matchesSearch
+    })
+  }, [modules, categoryFilter, moduleSearchTerm])
+
   // Filter users in modal based on search
   const filteredUsers = users.filter(user => {
     const search = userSearchTerm.toLowerCase()
@@ -342,7 +552,18 @@ function AssignModules() {
               className="btn btn-primary" 
               onClick={() => {
                 setAssignModalOpen(true)
+                setAssignType('single')
+                setSelectedUser('')
+                setSelectedUsers([])
+                setSelectedDepartment('')
+                setSelectedModules([])
+                setStartDate('')
+                setEndDate('')
                 setUserSearchTerm('')
+                setCategoryFilter('')
+                setModuleSearchTerm('')
+                setModuleSelectMode('manual')
+                setSelectedCategories([])
               }}
             >
               <i className="fa-solid fa-plus"></i>
@@ -371,6 +592,67 @@ function AssignModules() {
           </div>
         </div>
 
+        {/* Bulk action bar */}
+        {checkedRows.length > 0 && (
+          <div className="bulk-action-bar">
+            <span className="bulk-count"><i className="fa-solid fa-check-square"></i> {checkedRows.length} user{checkedRows.length !== 1 ? 's' : ''} selected</span>
+            <div className="bulk-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  // Find groups for all checked users
+                  const checkedGroups = groupedAssignments.filter(g => checkedRows.includes(g.user?.id))
+
+                  // Pre-select modules common to ALL checked users (intersection)
+                  let preModules = []
+                  if (checkedGroups.length === 1) {
+                    preModules = checkedGroups[0].assignments.map(a => a.module_id)
+                  } else if (checkedGroups.length > 1) {
+                    const firstSet = new Set(checkedGroups[0].assignments.map(a => a.module_id))
+                    preModules = checkedGroups.slice(1).reduce(
+                      (acc, g) => acc.filter(id => g.assignments.some(a => a.module_id === id)),
+                      [...firstSet]
+                    )
+                  }
+
+                  // Pre-fill dates only if all checked users share the same value
+                  const allSameStart = checkedGroups.length > 0 && checkedGroups.every(g => g.earliestStart === checkedGroups[0].earliestStart)
+                  const allSameEnd = checkedGroups.length > 0 && checkedGroups.every(g => g.latestEnd === checkedGroups[0].latestEnd)
+
+                  setSelectedUsers(checkedRows)
+                  setAssignType('multiple')
+                  setEditingUserId('bulk')
+                  setSelectedModules(preModules)
+                  setStartDate(allSameStart ? checkedGroups[0]?.earliestStart || '' : '')
+                  setEndDate(allSameEnd ? checkedGroups[0]?.latestEnd || '' : '')
+                  setUserSearchTerm('')
+                  setSelectedUser('')
+                  setSelectedDepartment('')
+                  setModuleSelectMode('manual')
+                  setSelectedCategories([])
+                  setAssignModalOpen(true)
+                }}
+                disabled={loading}
+              >
+                <i className="fa-solid fa-pen"></i> Edit Assignments
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={handleBulkDelete}
+                disabled={loading}
+              >
+                <i className="fa-solid fa-trash"></i> Delete Assignments
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setCheckedRows([])}
+              >
+                <i className="fa-solid fa-xmark"></i> Clear Selection
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Assignments Table */}
         <div className="assignments-table-container">
           <div className="table-header-row">
@@ -392,6 +674,18 @@ function AssignModules() {
               <table className="assignments-table">
                 <thead>
                   <tr>
+                    <th style={{ width: '40px' }}>
+                      <input
+                        type="checkbox"
+                        className="row-checkbox"
+                        title="Select all"
+                        checked={checkedRows.length === groupedAssignments.length && groupedAssignments.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) setCheckedRows(groupedAssignments.map(g => g.user?.id).filter(Boolean))
+                          else setCheckedRows([])
+                        }}
+                      />
+                    </th>
                     <th>#</th>
                     <th>User</th>
                     <th>Modules</th>
@@ -404,13 +698,26 @@ function AssignModules() {
                 <tbody>
                   {groupedAssignments.map((group, index) => {
                     const overallStatus = getOverallStatus(group.statuses)
+                    const userId = group.user?.id
+                    const isChecked = checkedRows.includes(userId)
                     return (
                       <tr 
-                        key={group.user?.id || index} 
-                        className="assignments-table-row"
+                        key={userId || index} 
+                        className={`assignments-table-row${isChecked ? ' row-selected' : ''}`}
                         onClick={() => openDetailDrawer(group)}
                         style={{ cursor: 'pointer' }}
                       >
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            className="row-checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) setCheckedRows(prev => [...prev, userId])
+                              else setCheckedRows(prev => prev.filter(id => id !== userId))
+                            }}
+                          />
+                        </td>
                         <td>{index + 1}</td>
                         <td>
                           <div className="user-info">
@@ -440,6 +747,13 @@ function AssignModules() {
                               <i className="fa-solid fa-eye"></i>
                             </button>
                             <button
+                              className="btn-icon btn-edit"
+                              onClick={() => openEditModal(group)}
+                              title="Edit assignments"
+                            >
+                              <i className="fa-solid fa-pen-to-square"></i>
+                            </button>
+                            <button
                               className="btn-icon btn-delete"
                               onClick={() => handleDeleteAllUserAssignments(group.user?.id)}
                               title="Delete all assignments"
@@ -462,97 +776,322 @@ function AssignModules() {
       {assignModalOpen && (
         <div className="modal-backdrop" onClick={() => {
           setAssignModalOpen(false)
+          setEditingUserId(null)
           setUserSearchTerm('')
+          setCategoryFilter('')
+          setModuleSearchTerm('')
         }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Assign Modules to User</h3>
+              <h3>
+                {editingUserId
+                  ? (editingUserId === 'bulk'
+                      ? `Edit Assignments — ${selectedUsers.length} user${selectedUsers.length !== 1 ? 's' : ''}`
+                      : 'Edit Module Assignments')
+                  : (assignType === 'single' ? 'Assign Modules to User' :
+                     assignType === 'multiple' ? 'Assign Modules to Multiple Users' :
+                     'Assign Modules to Department')}
+              </h3>
               <button onClick={() => {
                 setAssignModalOpen(false)
+                setEditingUserId(null)
                 setUserSearchTerm('')
+                setCategoryFilter('')
+                setModuleSearchTerm('')
               }}>
                 <i className="fa-solid fa-times"></i>
               </button>
             </div>
             <form onSubmit={handleAssign}>
               <div className="modal-body">
-                {/* User Selection with Search */}
+                {/* Assignment Type — hidden in edit mode */}
+                {!editingUserId && (
                 <div className="form-group">
-                  <label htmlFor="user_search">Select User *</label>
-                  <div className="searchable-select">
-                    <input
-                      type="text"
-                      id="user_search"
-                      placeholder="Search by name, email or ID..."
-                      value={userSearchTerm}
-                      onChange={(e) => setUserSearchTerm(e.target.value)}
-                      className="search-input"
-                    />
-                    <select
-                      id="user_select"
-                      value={selectedUser}
-                      onChange={(e) => setSelectedUser(e.target.value)}
-                      required
-                      size="5"
-                      className="user-select-list"
-                    >
-                      <option value="">-- Select User --</option>
-                      {filteredUsers.length === 0 ? (
-                        <option disabled>No users found</option>
-                      ) : (
-                        filteredUsers.map(user => (
-                          <option key={user.id} value={user.id}>
-                            {user.full_name} ({user.email})
-                          </option>
-                        ))
+                  <label htmlFor="assign_type">Assignment Type *</label>
+                  <select
+                    id="assign_type"
+                    value={assignType}
+                    onChange={(e) => {
+                      setAssignType(e.target.value)
+                      setSelectedUser('')
+                      setSelectedUsers([])
+                      setSelectedDepartment('')
+                      setUserSearchTerm('')
+                    }}
+                  >
+                    <option value="single">Single User</option>
+                    <option value="multiple">Multiple Users</option>
+                    <option value="department">Assign to Department</option>
+                  </select>
+                </div>
+                )}
+
+                {/* Single User — locked display in edit mode */}
+                {assignType === 'single' && (
+                  <div className="form-group">
+                    <label htmlFor="user_search">Select User *</label>
+                    {editingUserId ? (
+                      <div className="selected-user-display" style={{ marginTop: 0 }}>
+                        <i className="fa-solid fa-user"></i>
+                        {users.find(u => u.id === selectedUser)?.full_name || selectedUser}
+                        <span style={{ marginLeft: '0.5rem', color: '#9CA3AF', fontSize: '0.75rem' }}>(locked)</span>
+                      </div>
+                    ) : (
+                      <div className="searchable-select">
+                      <input
+                        type="text"
+                        id="user_search"
+                        placeholder="Search by name, email or ID..."
+                        value={userSearchTerm}
+                        onChange={(e) => setUserSearchTerm(e.target.value)}
+                        className="search-input"
+                      />
+                      <select
+                        id="user_select"
+                        value={selectedUser}
+                        onChange={(e) => setSelectedUser(e.target.value)}
+                        required
+                        size="5"
+                        className="user-select-list"
+                      >
+                        <option value="">-- Select User --</option>
+                        {filteredUsers.length === 0 ? (
+                          <option disabled>No users found</option>
+                        ) : (
+                          filteredUsers.map(user => (
+                            <option key={user.id} value={user.id}>
+                              {user.full_name} ({user.email})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      {selectedUser && (
+                        <div className="selected-user-display">
+                          <i className="fa-solid fa-check-circle"></i>
+                          Selected: {users.find(u => u.id === selectedUser)?.full_name}
+                        </div>
                       )}
-                    </select>
-                    {selectedUser && (
-                      <div className="selected-user-display">
-                        <i className="fa-solid fa-check-circle"></i>
-                        Selected: {users.find(u => u.id === selectedUser)?.full_name}
                       </div>
                     )}
                   </div>
-                </div>
+                )}
 
-                {/* Modules Multi-select */}
-                <div className="form-group">
-                  <label>
-                    Select Modules *
-                    <button
-                      type="button"
-                      className="select-all-btn"
-                      onClick={handleSelectAllModules}
-                    >
-                      {selectedModules.length === modules.length ? 'Deselect All' : 'Select All'}
-                    </button>
-                  </label>
-                  <div className="modules-list">
-                    {modules.length === 0 ? (
-                      <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>No modules available</p>
-                    ) : (
-                      modules.map(module => (
-                        <label key={module.id} className="module-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={selectedModules.includes(module.id)}
-                            onChange={() => handleModuleToggle(module.id)}
-                          />
-                          <div style={{ flex: 1 }}>
-                            <span className="module-title">{module.title}</span>
-                            {module.description && (
-                              <span className="module-description">{module.description}</span>
-                            )}
-                          </div>
-                        </label>
-                      ))
+                {/* Multiple Users */}
+                {assignType === 'multiple' && (
+                  <div className="form-group">
+                    <label>
+                      Select Users *
+                      <button
+                        type="button"
+                        className="select-all-btn"
+                        onClick={() => setSelectedUsers(
+                          selectedUsers.length === filteredUsers.length
+                            ? []
+                            : filteredUsers.map(u => u.id)
+                        )}
+                      >
+                        {selectedUsers.length === filteredUsers.length ? 'Deselect All' : 'Select All'}
+                      </button>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Search users..."
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                      className="search-input"
+                      style={{ marginBottom: '0.5rem' }}
+                    />
+                    <div className="modules-list">
+                      {filteredUsers.length === 0 ? (
+                        <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>No users found</p>
+                      ) : (
+                        filteredUsers.map(user => (
+                          <label key={user.id} className="module-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={selectedUsers.includes(user.id)}
+                              onChange={() => handleUserToggle(user.id)}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <span className="module-title">{user.full_name}</span>
+                              <span className="module-description">{user.email}</span>
+                            </div>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {selectedUsers.length > 0 && (
+                      <small style={{ color: '#3B82F6', marginTop: '0.5rem', display: 'block' }}>
+                        {selectedUsers.length} user{selectedUsers.length !== 1 ? 's' : ''} selected
+                      </small>
                     )}
                   </div>
-                  {selectedModules.length > 0 && (
-                    <small style={{ color: '#3B82F6', marginTop: '0.5rem', display: 'block' }}>
-                      {selectedModules.length} module{selectedModules.length !== 1 ? 's' : ''} selected
-                    </small>
+                )}
+
+                {/* Department */}
+                {assignType === 'department' && (
+                  <div className="form-group">
+                    <label htmlFor="dept_select">Select Department *</label>
+                    <select
+                      id="dept_select"
+                      value={selectedDepartment}
+                      onChange={(e) => setSelectedDepartment(e.target.value)}
+                      required
+                    >
+                      <option value="">-- Select Department --</option>
+                      {departments.map(dept => (
+                        <option key={dept.id} value={dept.id}>{dept.department_name}</option>
+                      ))}
+                    </select>
+                    {selectedDepartment && (
+                      <small style={{ color: '#3B82F6', marginTop: '0.5rem', display: 'block' }}>
+                        <i className="fa-solid fa-info-circle"></i> Modules will be assigned to all users in this department
+                      </small>
+                    )}
+                  </div>
+                )}
+
+                {/* Module Selection Mode Toggle */}
+                <div className="form-group">
+                  <label>Select Modules *</label>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${moduleSelectMode === 'manual' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => { setModuleSelectMode('manual'); setSelectedCategories([]); }}
+                      style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                    >
+                      <i className="fa-solid fa-hand-pointer"></i> Pick Modules
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${moduleSelectMode === 'category' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => { setModuleSelectMode('category'); setSelectedModules([]); setCategoryFilter(''); setModuleSearchTerm(''); }}
+                      style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                    >
+                      <i className="fa-solid fa-layer-group"></i> Pick by Category
+                    </button>
+                  </div>
+
+                  {moduleSelectMode === 'category' ? (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                        <small style={{ color: '#6B7280' }}>Select categories to auto-assign all their modules</small>
+                        <button
+                          type="button"
+                          className="select-all-btn"
+                          onClick={() => {
+                            if (selectedCategories.length === categories.length) {
+                              setSelectedCategories([])
+                              setSelectedModules([])
+                            } else {
+                              const allCatIds = categories.map(c => c.id)
+                              setSelectedCategories(allCatIds)
+                              setSelectedModules(modules.filter(m => allCatIds.includes(m.category_id)).map(m => m.id))
+                            }
+                          }}
+                        >
+                          {selectedCategories.length === categories.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
+                      <div className="modules-list">
+                        {categories.length === 0 ? (
+                          <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>No categories found</p>
+                        ) : (
+                          categories.map(cat => {
+                            const catModuleCount = modules.filter(m => m.category_id === cat.id).length
+                            return (
+                              <label key={cat.id} className="module-checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedCategories.includes(cat.id)}
+                                  onChange={() => {
+                                    const newCats = selectedCategories.includes(cat.id)
+                                      ? selectedCategories.filter(id => id !== cat.id)
+                                      : [...selectedCategories, cat.id]
+                                    setSelectedCategories(newCats)
+                                    setSelectedModules(modules.filter(m => newCats.includes(m.category_id)).map(m => m.id))
+                                  }}
+                                />
+                                <div style={{ flex: 1 }}>
+                                  <span className="module-title">{cat.name}</span>
+                                  <span className="module-description">{catModuleCount} module{catModuleCount !== 1 ? 's' : ''}</span>
+                                </div>
+                              </label>
+                            )
+                          })
+                        )}
+                      </div>
+                      {selectedCategories.length > 0 && (
+                        <small style={{ color: '#3B82F6', marginTop: '0.5rem', display: 'block' }}>
+                          {selectedCategories.length} categor{selectedCategories.length !== 1 ? 'ies' : 'y'} selected → {selectedModules.length} module{selectedModules.length !== 1 ? 's' : ''} will be assigned
+                        </small>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.3rem' }}>
+                        <button
+                          type="button"
+                          className="select-all-btn"
+                          onClick={() => {
+                            if (selectedModules.length === filteredModules.length && filteredModules.length > 0) {
+                              setSelectedModules([])
+                            } else {
+                              setSelectedModules(filteredModules.map(m => m.id))
+                            }
+                          }}
+                        >
+                          {selectedModules.length === filteredModules.length && filteredModules.length > 0 ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
+                      {/* Category filter */}
+                      <select
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value)}
+                        style={{ marginBottom: '0.5rem' }}
+                      >
+                        <option value="">All Categories</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                      </select>
+                      {/* Module search */}
+                      <input
+                        type="text"
+                        placeholder="Search modules..."
+                        value={moduleSearchTerm}
+                        onChange={(e) => setModuleSearchTerm(e.target.value)}
+                        className="search-input"
+                        style={{ marginBottom: '0.5rem' }}
+                      />
+                      <div className="modules-list">
+                        {filteredModules.length === 0 ? (
+                          <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>No modules found</p>
+                        ) : (
+                          filteredModules.map(module => (
+                            <label key={module.id} className="module-checkbox">
+                              <input
+                                type="checkbox"
+                                checked={selectedModules.includes(module.id)}
+                                onChange={() => handleModuleToggle(module.id)}
+                              />
+                              <div style={{ flex: 1 }}>
+                                <span className="module-title">{module.title}</span>
+                                {module.description && (
+                                  <span className="module-description">{module.description}</span>
+                                )}
+                              </div>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      {selectedModules.length > 0 && (
+                        <small style={{ color: '#3B82F6', marginTop: '0.5rem', display: 'block' }}>
+                          {selectedModules.length} module{selectedModules.length !== 1 ? 's' : ''} selected
+                        </small>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -589,6 +1128,8 @@ function AssignModules() {
                   onClick={() => {
                     setAssignModalOpen(false)
                     setUserSearchTerm('')
+                    setCategoryFilter('')
+                    setModuleSearchTerm('')
                   }}
                   disabled={loading}
                 >
@@ -679,6 +1220,78 @@ function AssignModules() {
                 <i className="fa-solid fa-trash"></i> Delete All Assignments
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Edit Modal */}
+      {bulkEditModalOpen && (
+        <div className="modal-backdrop" onClick={() => setBulkEditModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><i className="fa-solid fa-pen" style={{ marginRight: '0.5rem' }}></i>Edit Assignments — {checkedRows.length} user{checkedRows.length !== 1 ? 's' : ''}</h3>
+              <button onClick={() => setBulkEditModalOpen(false)}>
+                <i className="fa-solid fa-times"></i>
+              </button>
+            </div>
+            <form onSubmit={handleBulkEdit}>
+              <div className="modal-body">
+                <p style={{ color: '#6B7280', fontSize: '0.875rem', marginBottom: '1.25rem' }}>
+                  Leave any field blank to keep its current value unchanged.
+                </p>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="bulk_start">Start Date</label>
+                    <input
+                      type="date"
+                      id="bulk_start"
+                      value={bulkEditStart}
+                      onChange={(e) => setBulkEditStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="bulk_end">End Date</label>
+                    <input
+                      type="date"
+                      id="bulk_end"
+                      value={bulkEditEnd}
+                      onChange={(e) => setBulkEditEnd(e.target.value)}
+                      min={bulkEditStart || undefined}
+                    />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="bulk_status">Status</label>
+                  <select
+                    id="bulk_status"
+                    value={bulkEditStatus}
+                    onChange={(e) => setBulkEditStatus(e.target.value)}
+                  >
+                    <option value="">-- Keep current --</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setBulkEditModalOpen(false)}
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={loading}
+                >
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

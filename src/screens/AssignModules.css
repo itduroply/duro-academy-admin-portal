@@ -701,7 +701,7 @@
   }
 }
 
-}
+
 
 /* Module Count Badge */
 .module-count-badge {
@@ -727,6 +727,83 @@
   background-color: #F9FAFB;
   cursor: pointer;
 }
+
+.row-selected {
+  background-color: #EEF2FF !important;
+}
+
+.row-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #4F46E5;
+}
+
+/* Per-row edit button */
+.btn-edit {
+  color: #4F46E5;
+}
+
+.btn-edit:hover {
+  background-color: #EEF2FF;
+  color: #4338CA;
+}
+
+/* Bulk Action Bar */
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #EEF2FF;
+  border: 1px solid #C7D2FE;
+  border-radius: 0.625rem;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.bulk-count {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #4338CA;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  background-color: #FEE2E2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #DC2626;
+  color: white;
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
 
 /* Detail Drawer */
 .detail-drawer {

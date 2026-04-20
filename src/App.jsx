@@ -25,6 +25,21 @@ const ActiveLogins = lazy(() => import('./screens/ActiveLogins'))
 const AssignModules = lazy(() => import('./screens/AssignModules'))
 const AdminPermissions = lazy(() => import('./screens/AdminPermissions'))
 const Videos = lazy(() => import('./screens/Videos'))
+const CategoryAccess = lazy(() => import('./screens/CategoryAccess'))
+const AssignPerformanceDashboard = lazy(() => import('./screens/AssignPerformanceDashboard'))
+const ExcelUpload = lazy(() => import('./screens/ExcelUpload'))
+const PerformanceMasterUpload = lazy(() => import('./screens/PerformanceMasterUpload'))
+const InfluencerClaimScreen = lazy(() => import('./screens/InfluencerClaimScreen'))
+const InfluencerEnrollmentScreen = lazy(() => import('./screens/InfluencerEnrollmentScreen'))
+const InfluencerVisitScreen = lazy(() => import('./screens/InfluencerVisitScreen'))
+const LeadDetailsScreen = lazy(() => import('./screens/LeadDetailsScreen'))
+const LeadTaskScreen = lazy(() => import('./screens/LeadTaskScreen'))
+const MasterEnrollmentScreen = lazy(() => import('./screens/MasterEnrollmentScreen'))
+const TierUpgradeScreen = lazy(() => import('./screens/TierUpgradeScreen'))
+const HolidayScreen = lazy(() => import('./screens/HolidayScreen'))
+const AttendanceReportScreen = lazy(() => import('./screens/AttendanceReportScreen'))
+const TeleCallingScreen = lazy(() => import('./screens/TeleCallingScreen'))
+const WorkingDaysScreen = lazy(() => import('./screens/WorkingDaysScreen'))
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -83,6 +98,21 @@ function App() {
             <Route path="/video-progress" element={<Screen screen={SCREENS.VIDEO_PROGRESS}><VideoProgress /></Screen>} />
             <Route path="/active-logins" element={<Screen screen={SCREENS.ACTIVE_LOGINS}><ActiveLogins /></Screen>} />
             <Route path="/assign-modules" element={<Screen screen={SCREENS.ASSIGN_MODULES}><AssignModules /></Screen>} />
+            <Route path="/assign-performance-dashboard" element={<Screen screen={SCREENS.ASSIGN_PERFORMANCE_DASHBOARD}><AssignPerformanceDashboard /></Screen>} />
+            <Route path="/excel-upload" element={<Screen screen={SCREENS.EXCEL_UPLOAD}><ExcelUpload /></Screen>} />
+            <Route path="/performance-master" element={<Screen screen={SCREENS.PERFORMANCE_MASTER}><PerformanceMasterUpload /></Screen>} />
+            <Route path="/influencer-claim" element={<Screen screen={SCREENS.INFLUENCER_CLAIM}><InfluencerClaimScreen /></Screen>} />
+            <Route path="/influencer-enrollment" element={<Screen screen={SCREENS.INFLUENCER_ENROLLMENT}><InfluencerEnrollmentScreen /></Screen>} />
+            <Route path="/influencer-visit" element={<Screen screen={SCREENS.INFLUENCER_VISIT}><InfluencerVisitScreen /></Screen>} />
+            <Route path="/lead-details" element={<Screen screen={SCREENS.LEAD_DETAILS}><LeadDetailsScreen /></Screen>} />
+            <Route path="/lead-task" element={<Screen screen={SCREENS.LEAD_TASK}><LeadTaskScreen /></Screen>} />
+            <Route path="/master-enrollment" element={<Screen screen={SCREENS.MASTER_ENROLLMENT}><MasterEnrollmentScreen /></Screen>} />
+            <Route path="/tier-upgrade" element={<Screen screen={SCREENS.TIER_UPGRADE}><TierUpgradeScreen /></Screen>} />
+            <Route path="/holiday" element={<Screen screen={SCREENS.HOLIDAY}><HolidayScreen /></Screen>} />
+            <Route path="/attendance-report" element={<Screen screen={SCREENS.ATTENDANCE_REPORT}><AttendanceReportScreen /></Screen>} />
+            <Route path="/telecalling-wartask" element={<Screen screen={SCREENS.TELECALLING_WARTASK}><TeleCallingScreen /></Screen>} />
+            <Route path="/working-days" element={<Screen screen={SCREENS.WORKING_DAYS}><WorkingDaysScreen /></Screen>} />
+            <Route path="/category-access" element={<Screen screen={SCREENS.CATEGORY_ACCESS}><CategoryAccess /></Screen>} />
             <Route path="/admin-permissions" element={<Screen screen={SCREENS.ADMIN_PERMISSIONS}><AdminPermissions /></Screen>} />
           </Route>
 
