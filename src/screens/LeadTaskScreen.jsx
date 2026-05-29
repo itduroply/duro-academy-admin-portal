@@ -1,20 +1,20 @@
-import SalesDataScreen, { str } from '../components/SalesDataScreen'
+import SalesDataScreen, { str, excelDate } from '../components/SalesDataScreen'
 
 const mapRow = (r) => ({
-  lead_id: str(r[' Lead ID']),
-  lead_status: str(r[' Lead Status']),
+  lead_id: str(r['Lead ID']),
+  lead_status: str(r['Lead Status']),
   task_type: str(r['Task Type']),
   task_assign_to_dso_code: str(r['Task Assign To/DSO Code']),
   task_assign_to_dso_name: str(r['Task Assign To/DSO Name']),
   task_created_by_dso_code: str(r['Task Created By /DSO Code']),
   task_created_by_dso_name: str(r['Task Created By/DSO Name']),
   purpose: str(r['Purpose']),
-  task_created_on: str(r['Task Created On']) || null,
-  schedule_date: str(r['Schedule Date']) || null,
+  task_created_on: excelDate(r['Task Created On']),
+  schedule_date: excelDate(r['Schedule Date']),
   contact_person: str(r['Contact Person']),
   contact_no: str(r['Contact No']),
   discussion_point: str(r['Discussion Point']),
-  task_last_updated_date: str(r['Task Last Updated Date']) || null,
+  task_last_updated_date: excelDate(r['Task Last Updated Date']),
   task_status: str(r['Task Status']),
   remark: str(r['Remark']),
   district: str(r['District']),
@@ -27,7 +27,7 @@ const template = {
   sheetName: 'LeadTaskReport',
   fileName: 'LeadTaskReport_Format.xlsx',
   rows: [{
-    ' Lead ID': 'LEAD001', ' Lead Status': 'Open',
+    'Lead ID': 'LEAD001', 'Lead Status': 'Open',
     'Task Type': 'Call', 'Task Assign To/DSO Code': 'EMP001',
     'Task Assign To/DSO Name': 'Sales Person', 'Purpose': 'Follow Up',
     'Task Created On': '01-Jan-2026', 'Schedule Date': '02-Jan-2026',

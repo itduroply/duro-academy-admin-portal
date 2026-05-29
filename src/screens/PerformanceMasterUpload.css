@@ -1,31 +1,109 @@
-.pmu-main {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.25rem 1.5rem;
+/* ── Data panel (tabs + table) ──────────────────────────────── */
+.pmu-data-card { display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; }
+
+.pmu-tabs {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #E5E7EB;
+  padding: 0 1rem;
+  gap: 0;
+  overflow-x: auto;
+}
+.pmu-tab {
+  padding: 0.6rem 0.75rem;
+  border: none;
+  border-bottom: 2.5px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #6B7280;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pmu-tab:hover { color: #374151; }
+.pmu-tab.active { font-weight: 600; }
+.pmu-tab-count {
+  background: #F3F4F6;
+  border-radius: 99px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  color: #6B7280;
+  font-weight: 600;
+}
+.pmu-tab-refresh { margin-left: auto; border: none !important; border-bottom: 2.5px solid transparent !important; }
+
+.pmu-table-wrap { overflow-x: auto; padding: 0.6rem 1rem; }
+
+.pmu-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.pmu-data-table th {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  font-weight: 600;
+  color: #6B7280;
+  border-bottom: 1.5px solid #E5E7EB;
+  white-space: nowrap;
+}
+.pmu-data-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid #F3F4F6;
+  color: #374151;
+  vertical-align: middle;
+}
+.pmu-data-table tr:last-child td { border-bottom: none; }
+.pmu-data-table tr:hover td { background: #F9FAFB; }
+
+.pmu-brand-badge {
+  display: inline-block;
+  background: #EDE9FE;
+  color: #6D28D9;
+  padding: 0.15rem 0.6rem;
+  border-radius: 99px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.pmu-code {
+  background: #F3F4F6;
+  color: #374151;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.3rem;
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+.pmu-muted { color: #9CA3AF; font-size: 0.78rem; }
+
+.pmu-btn-del {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #D1D5DB;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.3rem;
+  transition: color 0.15s, background 0.15s;
+}
+.pmu-btn-del:hover { color: #EF4444; background: #FEE2E2; }
+
+.pmu-empty {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 2rem 0;
+  color: #9CA3AF;
+  font-size: 0.875rem;
+  text-align: center;
 }
-
-.pmu-header h2 {
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: #111827;
-  margin: 0;
-}
-.pmu-header p {
-  font-size: 0.82rem;
-  color: #6B7280;
-  margin: 0.15rem 0 0;
-}
-
-/* ── Layout ─────────────────────────────────────────────── */
-.pmu-layout {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 1rem;
-  align-items: start;
-}
+.pmu-empty i { font-size: 1.5rem; }
+.pmu-empty p { margin: 0; }
 @media (max-width: 1100px) {
   .pmu-layout { grid-template-columns: 1fr; }
 }

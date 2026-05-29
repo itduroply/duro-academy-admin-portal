@@ -450,7 +450,7 @@ function VideoProgress() {
   // ── Loading / Error ──────────────────────────────────────────
   if (loading) return (
     <main className="video-progress-main">
-      <div className="vp-loading"><i className="fa-solid fa-spinner fa-spin"></i><span>Loadingâ€¦</span></div>
+      <div className="vp-loading"><i className="fa-solid fa-spinner fa-spin"></i><span>Loading...</span></div>
     </main>
   )
   if (error) return (

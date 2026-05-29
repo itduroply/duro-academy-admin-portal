@@ -167,14 +167,37 @@ export default function SalesDataScreen({
       let totalSkipped = 0
       const errors = []
 
-      const allMapped = rawRows.map(r => ({
-        ...mapRow(trimRow(r)),
-        upload_session_id: sessionId,
-      }))
+      const allMapped = rawRows
+        .map(r => mapRow(trimRow(r)))
+        .filter(Boolean)
+        .map(row => ({
+          ...row,
+          upload_session_id: sessionId,
+        }))
 
       const mappedRows = uniqueKey
         ? Object.values(allMapped.reduce((acc, row) => { acc[row[uniqueKey]] = row; return acc }, {}))
         : allMapped
+
+      if (mappedRows.length === 0) {
+        await supabase
+          .from('excel_upload_sessions')
+          .update({
+            rows_inserted: 0,
+            rows_skipped: rawRows.length,
+            status: 'failed',
+            error_message: 'No valid rows found. Check column names match the expected format.',
+          })
+          .eq('id', sessionId)
+
+        setResult({
+          inserted: 0,
+          skipped: rawRows.length,
+          errors: ['No valid rows found. Check column names match the expected format.'],
+        })
+        setUploading(false)
+        return
+      }
 
       const batches = Math.ceil(mappedRows.length / BATCH_SIZE)
       for (let i = 0; i < batches; i++) {

@@ -87,7 +87,7 @@ export default function MasterEnrollmentScreen() {
       description="Upload and view master enrollment data"
       sheetType="m_enrollment"
       table="m_enrollment_details"
-      uniqueKey="account_no"
+      uniqueKey={null}
       mapRow={mapRow}
       template={template}
       columns={columns}

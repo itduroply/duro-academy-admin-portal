@@ -1,8 +1,8 @@
-import SalesDataScreen, { str, num } from '../components/SalesDataScreen'
+import SalesDataScreen, { str, num, excelDate } from '../components/SalesDataScreen'
 
 const mapRow = (r) => ({
   lead_code: str(r['Lead Code']),
-  created_date: str(r['Created Date']) || null,
+  created_date: excelDate(r['Created Date']),
   project_name: str(r['Project Name']),
   latitude: num(r['Latitude']),
   longitude: num(r['Longitude']),
@@ -20,7 +20,7 @@ const mapRow = (r) => ({
   lead_stage: str(r['Lead Stage']),
   lead_status: str(r['Lead Status']),
   decision_maker: str(r['Decision Maker']),
-  expected_maturity_date: str(r['Expected Maturity Date']) || null,
+  expected_maturity_date: excelDate(r['Expected Maturity Date']),
   linked_dealer: str(r['Linked Dealer']),
   linked_influencer: str(r['Linked Influencer']),
   linked_architect: str(r['Linked Architect']),
@@ -29,10 +29,10 @@ const mapRow = (r) => ({
   no_of_completed_tasks: num(r['No. Of Completed Task']),
   pending_task_assigned_to: str(r['Pending Task Assigned To']),
   latest_task_type: str(r['Latest Task Type']),
-  latest_task_scheduled_date: str(r['Latest Task Scheduled Date']) || null,
+  latest_task_scheduled_date: excelDate(r['Latest Task Scheduled Date']),
   latest_task_status: str(r['Latest Task Status']),
   latest_task_assign_to: str(r['Latest Task Assign To']),
-  lead_last_update_date: str(r['Lead Last Update Date']) || null,
+  lead_last_update_date: excelDate(r['Lead Last Update Date']),
   lead_created_by: str(r['Lead Created By']),
   task_created_by: str(r['Task Created By']),
   contact_type: str(r['Contact type']),
@@ -44,8 +44,8 @@ const mapRow = (r) => ({
   ageing: num(r['Ageing']),
   market_city: str(r['Market City']),
   lead_assign_to: str(r['Lead Assign To']),
-  lead_assign_date: str(r['Lead Assign Date']) || null,
-  lead_status_changed_on: str(r['Lead Status Changed On']) || null,
+  lead_assign_date: excelDate(r['Lead Assign Date']),
+  lead_status_changed_on: excelDate(r['Lead Status Changed On']),
   on_site_location: str(r['Are you standing on site location']),
 })
 

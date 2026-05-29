@@ -133,7 +133,7 @@ const SHEET_CONFIGS = {
       mapped_by_dso_name: str(r['Mapped By/DSO Name']),
       market_city_state: str(r['Market City State']),
       source_name: str(r['Source Name']),
-      influencer_tier: str(r[' Influencer Tier']),
+      influencer_tier: str(r['Influencer Tier'] ?? r[' Influencer Tier'] ?? r['Influencer Tier '] ?? r['INFLUENCER TIER']),
       selling_branch: str(r['Selling Branch']),
     }),
   },
@@ -172,7 +172,7 @@ const SHEET_CONFIGS = {
     icon: 'fa-solid fa-bullseye',
     mapRow: (r) => ({
       lead_code: str(r['Lead Code']),
-      created_date: str(r['Created Date']) || null,
+      created_date: excelDate(r['Created Date']),
       project_name: str(r['Project Name']),
       latitude: num(r['Latitude']),
       longitude: num(r['Longitude']),
@@ -190,7 +190,7 @@ const SHEET_CONFIGS = {
       lead_stage: str(r['Lead Stage']),
       lead_status: str(r['Lead Status']),
       decision_maker: str(r['Decision Maker']),
-      expected_maturity_date: str(r['Expected Maturity Date']) || null,
+      expected_maturity_date: excelDate(r['Expected Maturity Date']),
       linked_dealer: str(r['Linked Dealer']),
       linked_influencer: str(r['Linked Influencer']),
       linked_architect: str(r['Linked Architect']),
@@ -199,10 +199,10 @@ const SHEET_CONFIGS = {
       no_of_completed_tasks: num(r['No. Of Completed Task']),
       pending_task_assigned_to: str(r['Pending Task Assigned To']),
       latest_task_type: str(r['Latest Task Type']),
-      latest_task_scheduled_date: str(r['Latest Task Scheduled Date']) || null,
+      latest_task_scheduled_date: excelDate(r['Latest Task Scheduled Date']),
       latest_task_status: str(r['Latest Task Status']),
       latest_task_assign_to: str(r['Latest Task Assign To']),
-      lead_last_update_date: str(r['Lead Last Update Date']) || null,
+      lead_last_update_date: excelDate(r['Lead Last Update Date']),
       lead_created_by: str(r['Lead Created By']),
       task_created_by: str(r['Task Created By']),
       contact_type: str(r['Contact type']),
@@ -214,8 +214,8 @@ const SHEET_CONFIGS = {
       ageing: num(r['Ageing']),
       market_city: str(r['Market City']),
       lead_assign_to: str(r['Lead Assign To']),
-      lead_assign_date: str(r['Lead Assign Date']) || null,
-      lead_status_changed_on: str(r['Lead Status Changed On']) || null,
+      lead_assign_date: excelDate(r['Lead Assign Date']),
+      lead_status_changed_on: excelDate(r['Lead Status Changed On']),
       on_site_location: str(r['Are you standing on site location']),
     }),
   },
@@ -226,8 +226,8 @@ const SHEET_CONFIGS = {
     uniqueKey: null,
     icon: 'fa-solid fa-list-check',
     mapRow: (r) => ({
-      lead_id: str(r[' Lead ID']),
-      lead_status: str(r[' Lead Status']),
+        lead_id: str(pickByNormalizedHeader(r, ['lead id', 'lead_id'])),
+        lead_status: str(pickByNormalizedHeader(r, ['lead status', 'lead_status'])),
       task_type: str(r['Task Type']),
       task_assign_to_dso_code: str(r['Task Assign To/DSO Code']),
       task_assign_to_dso_name: str(r['Task Assign To/DSO Name']),
@@ -252,7 +252,7 @@ const SHEET_CONFIGS = {
   m_enrollment: {
     label: 'Master Enrollment (MEnrollment)',
     table: 'm_enrollment_details',
-    uniqueKey: 'account_no',
+    uniqueKey: null,
     icon: 'fa-solid fa-address-card',
     mapRow: (r) => ({
       account_no: str(r['AccountNo']),
@@ -306,6 +306,122 @@ const SHEET_CONFIGS = {
       physical_verification_remark: str(r['Physical Verification Remark']),
       tier: str(r['Tier']),
     }),
+  },
+
+  tier_upgrade: {
+    label: 'Tier Upgrade Performance Report',
+    table: 'tier_upgrade_performance_report',
+    uniqueKey: null,
+    icon: 'fa-solid fa-arrow-up-right-dots',
+    mapRow: (r) => ({
+      dmi_id: str(r['DMI ID']),
+      dmi_name: str(r['DMI Name']),
+      dmi_market_city: str(r['DMI Market City']),
+      district: str(r['District']),
+      state: str(r['State']),
+      tier_change_date: str(r['Tier Change Date']),
+      previous_tier: str(r['Previous Tier']),
+      new_tier: str(r['New Tier']),
+      change_type: str(r['Change Type']),
+      reason_for_change: str(r['Reason for Change']),
+      changed_by: str(r['Changed By']),
+      effective_from: str(r['Effective From']),
+      account_status: str(r['Account Status']),
+      tier_change_frequency: num(r['Tier Change Frequency']),
+      mapped_isr: str(r['Mapped ISR']),
+      fy_claimpoint: num(r['FY CLAIMPOINT']),
+      fy_tierpoints: num(r['FY TIERPOINTS']),
+    }),
+  },
+
+  telecalling_wartask: {
+    label: 'TeleCalling Influencer War Task',
+    table: 'telecalling_influencer_wartask',
+    uniqueKey: null,
+    icon: 'fa-solid fa-phone-volume',
+    mapRow: (r) => ({
+      task_date: str(r['Task Date']),
+      task_no: str(r['Task No']),
+      influencer_market_city: str(r['Influencer Market City']),
+      influencer_type: str(r['Influencer Type']),
+      influencer_id: str(r['Influencer ID']),
+      influencer_name: str(r['Influencer Name']),
+      primary_phone_no: str(r['Primary Phone No']),
+      secondary_phone_no: str(r['Secondary Phone No']),
+      owner_name: str(r['Owner Name']),
+      task_priority: str(r['Task Priority']),
+      task_description: str(r['Task Description']),
+      task_description2: str(r['Task Description2']),
+      tele_caller_comment: str(r['Tele caller Comment']),
+      status_as_on_today: str(r['Status as on Today']),
+      status_change_date: str(r['Status Change date']),
+      status_elapse_days: num(r['Status Elapse Days']),
+      tele_calling_escalation: str(r['Tele calling Escalation']),
+      current_owner_type: str(r['Current Owner Type']),
+      current_owner_name: str(r['Current Owner Name']),
+      isr_contact_details: str(r['ISR Contact Details']),
+      distributor_code: str(r['Distributor Code']),
+      distributor_name: str(r['Distributor Name']),
+      task_remark: str(r['Task Remark']),
+      order_status: str(r['Order Status (ByUser)']),
+      so_no: str(r['SO No']),
+      so_amount: str(r['SO Amount']),
+      so_date: str(r['SO Date']),
+      customer_latitude: str(r['CustomerLatitude']),
+      customer_longitude: str(r['CustomerLongitude']),
+      war_activity_lat: str(r['War Activity Lat']),
+      war_activity_long: str(r['War Activity Long']),
+      distance_in_km: str(r['Distance In KM']),
+      location_compliance: str(r['Location compliance']),
+      war_activity_date: str(r['War Activity Date']),
+      state: str(r['State']),
+      call_type: str(r['Call Type']),
+      caller_id: str(r['Caller ID']),
+      caller_name: str(r['Caller Name']),
+      mapped_isr_name: str(r['Mapped ISR Name']),
+      mapped_isr_code: str(r['Mapped ISR Code']),
+      influencer_tier: str(r['Influencer Tier']),
+    }),
+  },
+
+  monthly_attendance: {
+    label: 'Monthly Attendance Report',
+    table: 'monthly_attendance_report',
+    uniqueKey: 'record_key',
+    icon: 'fa-solid fa-user-check',
+    mapRow: (r) => {
+      const employeeCode = str(
+        pickByNormalizedHeader(r, [
+          'employeecode', 'employeecodeid', 'employeeid', 'employeeno', 'empcode',
+        ])
+      )
+      const attendanceDate = excelDate(
+        pickByNormalizedHeader(r, ['attendancedate', 'attendanceon', 'date'])
+      )
+      if (!employeeCode || !attendanceDate) return null
+      return {
+        record_key: `${employeeCode}_${attendanceDate}`,
+        employee_code: employeeCode,
+        full_name: str(pickByNormalizedHeader(r, ['fullname'])),
+        employment_status: str(pickByNormalizedHeader(r, ['employmentstatus'])),
+        company: str(pickByNormalizedHeader(r, ['company'])),
+        business_unit: str(pickByNormalizedHeader(r, ['businessunit'])),
+        department: str(pickByNormalizedHeader(r, ['department'])),
+        designation: str(pickByNormalizedHeader(r, ['designation'])),
+        branch: str(pickByNormalizedHeader(r, ['branch'])),
+        sub_branch: str(pickByNormalizedHeader(r, ['subbranch'])),
+        attendance_date: attendanceDate,
+        working_hour: str(pickByNormalizedHeader(r, ['workinghour', 'workinghours'])),
+        shift_code: str(pickByNormalizedHeader(r, ['shiftcode'])),
+        shift_timings: str(pickByNormalizedHeader(r, ['shifttimings', 'shifttiming'])),
+        attendance_status: str(
+          pickByNormalizedHeader(r, ['attendancestatus', 'status'])
+        ),
+        checkin_timings: str(
+          pickByNormalizedHeader(r, ['checkintimings', 'punchclockingtime', 'punchclockingtim', 'punchclockingtimings'])
+        ),
+      }
+    },
   },
 }
 
@@ -363,7 +479,7 @@ const SHEET_TEMPLATES = {
     sheetName: 'LeadTaskReport',
     fileName: 'LeadTaskReport_Format.xlsx',
     rows: [{
-      ' Lead ID': 'LEAD001', ' Lead Status': 'Open',
+      'Lead ID': 'LEAD001', 'Lead Status': 'Open',
       'Task Type': 'Call', 'Task Assign To/DSO Code': 'EMP001',
       'Task Assign To/DSO Name': 'Sales Person', 'Purpose': 'Follow Up',
       'Task Created On': '01-Jan-2026', 'Schedule Date': '02-Jan-2026',
@@ -382,6 +498,54 @@ const SHEET_TEMPLATES = {
       'Firm Address*': 'Sample Address', 'Permanent Address*': 'Sample Address',
       'City': 'Mumbai', 'State*': 'Maharashtra', 'District*': 'Mumbai',
       'Pincode': '400001', 'ISACTIVE*': 'True', 'Enrolled': 'Yes', 'Tier': 'Base Tier',
+    }],
+  },
+  tier_upgrade: {
+    sheetName: 'TierUpgradePerformanceReport',
+    fileName: 'TierUpgradePerformanceReport_Format.xlsx',
+    rows: [{
+      'DMI ID': '314102', 'DMI Name': 'Sample Name', 'DMI Market City': 'Delhi',
+      'District': 'Central Delhi', 'State': 'Delhi', 'Tier Change Date': '01 Apr 2026',
+      'Previous Tier': 'Gold', 'New Tier': 'Silver', 'Change Type': 'Tier Downgrade',
+      'Reason for Change': 'Compliance', 'Changed By': 'System', 'Effective From': '4/1/2026',
+      'Account Status': 'Active', 'Tier Change Frequency': 1, 'Mapped ISR': 'D10535 | Sample ISR',
+      'FY CLAIMPOINT': 353, 'FY TIERPOINTS': 53,
+    }],
+  },
+  telecalling_wartask: {
+    sheetName: 'TeleCallingInfluencerWartask',
+    fileName: 'TeleCallingInfluencerWartask_Format.xlsx',
+    rows: [{
+      'Task Date': '01 Apr 2026', 'Task No': 'WAR2604000001',
+      'Influencer Market City': 'Ajmer', 'Influencer Type': 'Contractor',
+      'Influencer ID': '110313', 'Influencer Name': 'Sample Name',
+      'Primary Phone No': '9999999999', 'Secondary Phone No': '',
+      'Owner Name': '', 'Task Priority': 'P0',
+      'Task Description': 'Telecall Escalation Tag', 'Task Description2': '',
+      'Tele caller Comment': 'Sample comment',
+      'Status as on Today': 'Closure', 'Status Change date': '01-Apr-2026',
+      'Status Elapse Days': 5, 'Tele calling Escalation': 'SE Visit required',
+      'Current Owner Type': 'DSO', 'Current Owner Name': 'Sample Owner',
+      'ISR Contact Details': '9999999999', 'Distributor Code': 'STATE',
+      'Distributor Name': 'STATE', 'Task Remark': 'Sample remark',
+      'Order Status (ByUser)': 'YES', 'SO No': 'WAR2604000001',
+      'State': 'Rajasthan', 'Call Type': 'Call Me',
+      'Mapped ISR Name': 'Sample ISR', 'Mapped ISR Code': 'D10464',
+      'Influencer Tier': 'Bronze',
+    }],
+  },
+  monthly_attendance: {
+    sheetName: 'Monthly_Working_Hour',
+    fileName: 'Monthly_Attendance_Report_Format.xlsx',
+    rows: [{
+      'Employee Code': 'D01929', 'Full name': 'Sample User',
+      'Employment status': 'Active', 'Company': 'Duroply Industries Limited',
+      'Business Unit': 'Plywood', 'Department': 'Sales',
+      'Designation': 'Branch Manager', 'Branch': 'ANDHRA PRADESH',
+      'Sub branch': 'Vijayawada', 'Attendance date': '2026-03-31',
+      'Working hour': '08:00', 'Shift code': 'GN- KOL',
+      'Shift timings': '10:00 | 18:00', 'Attendance status': 'P | P',
+      'Checkin timings': '10:00 | 18:00',
     }],
   },
 }
@@ -417,9 +581,76 @@ function excelDate(v) {
   }
   const s = String(v).trim()
   if (!s) return null
+  // Handle dd-mm-yyyy / dd/mm/yyyy explicitly because Date parsing is inconsistent.
+  const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/)
+  if (m) {
+    const dd = Number(m[1])
+    const mm = Number(m[2])
+    const yyyy = Number(m[3])
+    if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) {
+      return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
+    }
+  }
   // Try parse common formats
   const d = new Date(s)
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+}
+
+function normalizeHeaderText(v) {
+  return String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function pickByNormalizedHeader(row, aliases = []) {
+  if (!row || typeof row !== 'object') return null
+  const wanted = new Set(aliases.map(normalizeHeaderText).filter(Boolean))
+  if (wanted.size === 0) return null
+
+  for (const key of Object.keys(row)) {
+    if (wanted.has(normalizeHeaderText(key))) return row[key]
+  }
+  return null
+}
+
+function normalizeTierKey(v) {
+  return String(v || '').trim().toLowerCase()
+}
+
+function parseMonthlyAttendanceRows(ws) {
+  const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+  if (!Array.isArray(matrix) || matrix.length === 0) return []
+
+  const headerIdx = matrix.findIndex((row, idx) => {
+    if (idx > 30 || !Array.isArray(row)) return false
+    const normalized = row.map(normalizeHeaderText).filter(Boolean)
+    const hasEmployee = normalized.some(h =>
+      ['employeecode', 'employeeid', 'employeeno', 'empcode', 'employeecodeid'].includes(h)
+    )
+    const hasAttendanceDate = normalized.some(h =>
+      ['attendancedate', 'date', 'attendanceon'].includes(h)
+    )
+    return hasEmployee && hasAttendanceDate
+  })
+
+  if (headerIdx === -1) return []
+
+  const headers = (matrix[headerIdx] || []).map(h => (h === null || h === undefined ? '' : String(h).trim()))
+  const out = []
+
+  for (let i = headerIdx + 1; i < matrix.length; i++) {
+    const row = matrix[i]
+    if (!Array.isArray(row)) continue
+    const obj = {}
+    let hasAnyValue = false
+    headers.forEach((h, colIdx) => {
+      if (!h) return
+      const val = row[colIdx] ?? null
+      if (val !== null && val !== '') hasAnyValue = true
+      obj[h] = val
+    })
+    if (hasAnyValue) out.push(obj)
+  }
+
+  return out
 }
 
 const BATCH_SIZE = 500
@@ -474,7 +705,9 @@ function ExcelUpload() {
       const buffer = await file.arrayBuffer()
       const wb = XLSX.read(buffer, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null })
+      const rawRows = selectedType === 'monthly_attendance'
+        ? parseMonthlyAttendanceRows(ws)
+        : XLSX.utils.sheet_to_json(ws, { defval: null })
 
       if (rawRows.length === 0) {
         setResult({ inserted: 0, skipped: 0, errors: ['File is empty or has no data rows.'] })
@@ -503,22 +736,45 @@ function ExcelUpload() {
       const errors = []
 
       // 3. Map rows (trim all string values/keys before mapping)
-      const allMappedRows = rawRows.map(r => ({
-        ...config.mapRow(trimRow(r)),
-        upload_session_id: sessionId,
-      }))
+      const allMappedRows = rawRows
+        .map(r => {
+          const mapped = config.mapRow(trimRow(r))
+          if (!mapped) return null
+          return { ...mapped, upload_session_id: sessionId }
+        })
+        .filter(Boolean)
 
-      // Deduplicate by uniqueKey — last row wins (prevents ON CONFLICT batch error)
+      // Deduplicate upload rows before DB write.
+      // For sheets with a uniqueKey, last row wins.
       const mappedRows = config.uniqueKey
-        ? Object.values(
-            allMappedRows.reduce((acc, row) => { acc[row[config.uniqueKey]] = row; return acc }, {})
-          )
-        : allMappedRows
+          ? Object.values(
+              allMappedRows.reduce((acc, row) => { acc[row[config.uniqueKey]] = row; return acc }, {})
+            )
+          : allMappedRows
 
-      // 4. Upsert in batches
-      const batches = Math.ceil(mappedRows.length / BATCH_SIZE)
+      if (mappedRows.length === 0) {
+        const msg = 'No valid rows found. Please verify required columns (e.g. Employee Code, Attendance date) and date format.'
+        await supabase
+          .from('excel_upload_sessions')
+          .update({
+            rows_inserted: 0,
+            rows_skipped: rawRows.length,
+            status: 'failed',
+            error_message: msg,
+          })
+          .eq('id', sessionId)
+
+        setResult({ inserted: 0, skipped: rawRows.length, errors: [msg] })
+        await fetchSessions()
+        setUploading(false)
+        return
+      }
+
+      // 4. Upsert/insert in batches
+      const rowsToWrite = mappedRows
+      const batches = Math.ceil(rowsToWrite.length / BATCH_SIZE)
       for (let i = 0; i < batches; i++) {
-        const batch = mappedRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
+        const batch = rowsToWrite.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
 
         let error
         if (config.uniqueKey) {

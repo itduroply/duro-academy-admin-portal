@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import './PerformanceMasterUpload.css'
+import './ExcelUpload.css'
 
 // ── Sheet configs ────────────────────────────────────────────
 const SHEET_CONFIGS = {
@@ -105,6 +106,98 @@ const SHEET_CONFIGS = {
       }
     },
   },
+
+  holiday: {
+    label: 'Holiday Calendar',
+    description: 'State-wise holiday list upload',
+    table: 'holiday_master',
+    uniqueKey: null,
+    icon: 'fa-solid fa-calendar-days',
+    color: '#F59E0B',
+    requiredColumns: ['holiday', 'festival', 'day', 'date'],
+    preview: ['Holiday', 'Festival', 'Day', 'Date', 'Andhra Pradesh', 'Delhi Corporate Office'],
+    mapRow: (r) => ({
+      holiday: str(r['Holiday']),
+      festival: str(r['Festival']),
+      day: str(r['Day']),
+      date: str(r['Date']),
+      andhra_pradesh: str(r['Andhra Pradesh']),
+      assam: str(r['Assam']),
+      bihar: str(r['Bihar']),
+      chhattisgarh: str(r['Chhattisgarh']),
+      delhi_corporate_office: str(r['Delhi Corporate Office']),
+      gujarat: str(r['Gujarat']),
+      haryana: str(r['Haryana']),
+      hp_tricity: str(r['HP- Tricity']),
+      jharkhand: str(r['Jharkhand']),
+      karnataka: str(r['Karnataka']),
+      kerala: str(r['Kerala']),
+      kolkata_head_office: str(r['Kolkata Head Office']),
+      madhya_pradesh: str(r['Madhya Pradesh']),
+      maharashtra: str(r['Maharashtra']),
+      odisha: str(r['Odisha']),
+      punjab: str(r['Punjab']),
+      rajasthan: str(r['Rajasthan']),
+      rajkot_factory: str(r['Rajkot Factory']),
+      tamil_nadu: str(r['Tamil Nadu']),
+      telangana: str(r['Telangana']),
+      uttar_pradesh: str(r['Uttar Pradesh']),
+      west_bengal: str(r['West Bengal']),
+      western_uttar_pradesh: str(r['Western Uttar Pradesh']),
+    }),
+  },
+
+  attendance_report: {
+    label: 'Attendance Report',
+    description: 'Employee daily attendance data',
+    table: 'attendance_report',
+    uniqueKey: null,
+    icon: 'fa-solid fa-clipboard-user',
+    color: '#6366F1',
+    requiredColumns: ['name', 'employee_id', 'attendance_date', 'attendance_status'],
+    preview: ['Name', 'Employee ID', 'State', 'Attendance Date', 'Attendance Status'],
+    mapRow: (r) => ({
+      name: str(r['Name']),
+      employee_id: str(r['Employee ID']),
+      login_id: str(r['Login ID']),
+      mobile_no: str(r['Mobile No']),
+      state: str(r['State']),
+      district: str(r['District']),
+      area_manager: str(r['Area Manager']),
+      branch: str(r['Branch']),
+      latitude: str(r['Lattitude']),
+      longitude: str(r['Longitude']),
+      attendance_location: str(r['Attendance Location']),
+      attendance_date: str(r['Attendance Date']),
+      attendance_time: str(r['Attendance Time']),
+      end_day_time: str(r['End Day Time']),
+      end_day_lat: str(r['End Day Lat']),
+      end_day_long: str(r['End Day Long']),
+      end_day_location: str(r['End Day Location']),
+      work_hrs: str(r['Work Hrs']),
+      leave_type: str(r['Leave Type']),
+      attendance_reason: str(r['Attendance Reason']),
+      attendance_status: str(r['Attendance Status']),
+      attendance_remark: str(r['Attendance Remark']),
+      payroll_company: str(r['Payroll Comapany']),
+    }),
+  },
+
+  working_days_report: {
+    label: 'Working Days Report',
+    description: 'State-wise monthly working days',
+    table: 'working_days_report',
+    uniqueKey: null,
+    icon: 'fa-solid fa-calendar-week',
+    color: '#0D9488',
+    requiredColumns: ['month', 'state', 'working_days'],
+    preview: ['Month', 'State', 'Working Days'],
+    mapRow: (r) => ({
+      month: str(r['Month']),
+      state: str(r['State']),
+      working_days: num(r['Working Days']),
+    }),
+  },
 }
 
 // ── Format templates (sample rows for download) ────────────
@@ -153,6 +246,39 @@ const SHEET_TEMPLATES = {
       { 'State / Month': 'Delhi Corporate Office', Jan: 23, Feb: 23, Mar: 24, Apr: 24, May: 25, Jun: 25, Jul: 26, Aug: 24, Sep: 24, Oct: 23, Nov: 23, Dec: 25, 'Annual Total': 289, 'Holidays (Annual)': 12 },
     ],
   },
+
+  holiday: {
+    sheetName: 'Sheet1',
+    fileName: 'Holiday_Format.xlsx',
+    rows: [{
+      'Holiday': 'New Year', 'Festival': 'New Year', 'Day': 'Wednesday', 'Date': '1-01-2026',
+      'Andhra Pradesh': 'Yes', 'Delhi Corporate Office': 'Yes', 'Karnataka': 'Yes',
+      'Kerala': 'Yes', 'Tamil Nadu': 'Yes', 'Telangana': 'Yes', 'West Bengal': 'Yes',
+    }],
+  },
+
+  attendance_report: {
+    sheetName: 'AttendanceReportV2',
+    fileName: 'AttendanceReport_Format.xlsx',
+    rows: [{
+      'Name': 'Sample Name', 'Employee ID': 'S10001', 'Login ID': 'S10001',
+      'Mobile No': '9999999999', 'State': 'PUNJAB', 'District': 'LUDHIANA',
+      'Area Manager': 'Manager Name', 'Branch': 'Branch Name',
+      'Attendance Date': '15-Apr-2026', 'Attendance Time': '9:00AM',
+      'Attendance Status': 'Present', 'Attendance Reason': 'MARKET VISIT',
+      'Work Hrs': '9', 'Payroll Comapany': 'Customer',
+    }],
+  },
+
+  working_days_report: {
+    sheetName: 'Working_Days',
+    fileName: 'Working_Days_Report_Format.xlsx',
+    rows: [{
+      'Month': 'January', 'State': 'Andhra Pradesh', 'Working Days': 26,
+    }, {
+      'Month': 'February', 'State': 'Andhra Pradesh', 'Working Days': 23,
+    }],
+  },
 }
 
 // ── Helpers ──────────────────────────────────────────────────// Trims leading/trailing whitespace from all string keys and values in a row
@@ -184,14 +310,13 @@ function PerformanceMasterUpload() {
 
   const [selectedType, setSelectedType] = useState('')
   const [file, setFile] = useState(null)
-  const [previewRows, setPreviewRows] = useState([])
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState(null)
   const [sessions, setSessions] = useState([])
   const [sessionsLoading, setSessLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('point_master') // for data view tabs
-  const [tableData, setTableData] = useState({ point_master: [], goals_master: [], brand_category: [], dmi_raw_points: [], working_days: [] })
+  const [activeTab, setActiveTab] = useState('point_master')
+  const [tableData, setTableData] = useState({ point_master: [], goals_master: [], brand_category: [], dmi_raw_points: [], working_days: [], holiday: [], attendance_report: [], working_days_report: [] })
   const [tableLoading, setTableLoading] = useState(false)
 
   useEffect(() => {
@@ -204,7 +329,7 @@ function PerformanceMasterUpload() {
     const { data } = await supabase
       .from('excel_upload_sessions')
       .select('*')
-      .in('sheet_type', ['point_master', 'goals_master', 'brand_category', 'dmi_raw_points', 'working_days'])
+      .in('sheet_type', ['point_master', 'goals_master', 'brand_category', 'dmi_raw_points', 'working_days', 'holiday', 'attendance_report', 'working_days_report'])
       .order('upload_date', { ascending: false })
       .limit(20)
     if (data) setSessions(data)
@@ -213,12 +338,15 @@ function PerformanceMasterUpload() {
 
   const fetchTableData = async () => {
     setTableLoading(true)
-    const [{ data: pts }, { data: goals }, { data: brands }, { data: dmi }, { data: wd }] = await Promise.all([
+    const [{ data: pts }, { data: goals }, { data: brands }, { data: dmi }, { data: wd }, { data: hol }, { data: att }, { data: wdr }] = await Promise.all([
       supabase.from('sheet_point_master').select('*').order('brand_name'),
       supabase.from('goals_master').select('*').order('employee_code'),
       supabase.from('brand_category_master').select('*').order('brand_name'),
       supabase.from('dmi_raw_points_master').select('*').order('tier'),
       supabase.from('working_days_master').select('*').order('state_month'),
+      supabase.from('holiday_master').select('*').order('date'),
+      supabase.from('attendance_report').select('*').order('attendance_date', { ascending: false }).limit(500),
+      supabase.from('working_days_report').select('*').order('month'),
     ])
     setTableData({
       point_master: pts || [],
@@ -226,6 +354,9 @@ function PerformanceMasterUpload() {
       brand_category: brands || [],
       dmi_raw_points: dmi || [],
       working_days: wd || [],
+      holiday: hol || [],
+      attendance_report: att || [],
+      working_days_report: wdr || [],
     })
     setTableLoading(false)
   }
@@ -239,36 +370,11 @@ function PerformanceMasterUpload() {
     XLSX.writeFile(wb, tpl.fileName)
   }
 
-  const handleTypeSelect = (type) => {
-    setSelectedType(type)
-    setFile(null)
-    setPreviewRows([])
-    setResult(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
   const handleFileChange = (e) => {
     const f = e.target.files[0]
     if (!f) return
     setFile(f)
     setResult(null)
-    parsePreview(f)
-  }
-
-  const parsePreview = (f) => {
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
-      const ws = wb.Sheets[wb.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: null })
-      const config = SHEET_CONFIGS[selectedType]
-      const mapped = rows
-        .map(r => config.mapRow(trimRow(r)))
-        .filter(Boolean)
-        .slice(0, 5)
-      setPreviewRows(mapped)
-    }
-    reader.readAsArrayBuffer(f)
   }
 
   const handleUpload = async () => {
@@ -287,11 +393,8 @@ function PerformanceMasterUpload() {
 
       const mappedRows = rawRows.map(r => config.mapRow(trimRow(r))).filter(Boolean)
 
-      // Deduplicate by uniqueKey — last row wins (prevents ON CONFLICT batch error)
       const deduped = config.uniqueKey
-        ? Object.values(
-            mappedRows.reduce((acc, row) => { acc[row[config.uniqueKey]] = row; return acc }, {})
-          )
+        ? Object.values(mappedRows.reduce((acc, row) => { acc[row[config.uniqueKey]] = row; return acc }, {}))
         : mappedRows
 
       if (deduped.length === 0) {
@@ -300,17 +403,9 @@ function PerformanceMasterUpload() {
         return
       }
 
-      // Create upload session
       const { data: sessionData, error: sessionError } = await supabase
         .from('excel_upload_sessions')
-        .insert({
-          sheet_type: selectedType,
-          file_name: file.name,
-          uploaded_by: user?.id || null,
-          rows_inserted: 0,
-          rows_skipped: 0,
-          status: 'partial',
-        })
+        .insert({ sheet_type: selectedType, file_name: file.name, uploaded_by: user?.id || null, rows_inserted: 0, rows_skipped: 0, status: 'partial' })
         .select()
         .single()
       if (sessionError) throw sessionError
@@ -328,29 +423,19 @@ function PerformanceMasterUpload() {
         const { error } = await supabase
           .from(config.table)
           .upsert(batch, { onConflict: config.uniqueKey, ignoreDuplicates: false })
-
-        if (error) {
-          errors.push(`Batch ${i + 1}: ${error.message}`)
-          totalSkipped += batch.length
-        } else {
-          totalInserted += batch.length
-        }
+        if (error) { errors.push(`Batch ${i + 1}: ${error.message}`); totalSkipped += batch.length }
+        else { totalInserted += batch.length }
         setProgress(Math.round(((i + 1) / batches) * 100))
       }
 
-      await supabase
-        .from('excel_upload_sessions')
-        .update({
-          rows_inserted: totalInserted,
-          rows_skipped: totalSkipped,
-          status: errors.length === 0 ? 'success' : totalInserted > 0 ? 'partial' : 'failed',
-          error_message: errors.length ? errors.slice(0, 3).join(' | ') : null,
-        })
-        .eq('id', sessionId)
+      await supabase.from('excel_upload_sessions').update({
+        rows_inserted: totalInserted, rows_skipped: totalSkipped,
+        status: errors.length === 0 ? 'success' : totalInserted > 0 ? 'partial' : 'failed',
+        error_message: errors.length ? errors.slice(0, 3).join(' | ') : null,
+      }).eq('id', sessionId)
 
       setResult({ inserted: totalInserted, skipped: totalSkipped, errors })
       setFile(null)
-      setPreviewRows([])
       if (fileInputRef.current) fileInputRef.current.value = ''
       await Promise.all([fetchSessions(), fetchTableData()])
     } catch (err) {
@@ -369,371 +454,276 @@ function PerformanceMasterUpload() {
 
   const formatDate = (d) => {
     if (!d) return '—'
-    return new Date(d).toLocaleString('en-IN', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    })
+    return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
-
   const statusColor = (s) => ({ success: '#10B981', partial: '#F59E0B', failed: '#EF4444' }[s] || '#6B7280')
-  const cfg = selectedType ? SHEET_CONFIGS[selectedType] : null
 
   return (
-    <main className="pmu-main">
-      {/* Header */}
-      <section className="pmu-header">
+    <main className="excel-upload-main">
+      <section className="excel-upload-header">
         <div>
           <h2>Performance Master Data</h2>
           <p>Upload and manage master sheets used for calculating performance scores</p>
         </div>
       </section>
 
-      <div className="pmu-layout">
-        {/* ── Left: Upload panel ── */}
-        <div className="pmu-upload-panel">
-          <div className="pmu-card">
-            <h3><i className="fa-solid fa-upload"></i> Upload Master Sheet</h3>
-
-            {/* Sheet type selector */}
-            <div className="pmu-type-grid">
+      {/* Upload Card */}
+      <div className="upload-card">
+        <h3><i className="fa-solid fa-upload"></i> Upload Master Sheet</h3>
+        <div className="upload-form">
+          <div className="form-group">
+            <label>Sheet Type *</label>
+            <div className="sheet-type-grid">
               {Object.entries(SHEET_CONFIGS).map(([key, c]) => (
                 <button
                   key={key}
                   type="button"
-                  className={`pmu-type-btn${selectedType === key ? ' selected' : ''}`}
-                  style={selectedType === key ? { borderColor: c.color, background: c.color + '18', color: c.color } : {}}
-                  onClick={() => handleTypeSelect(key)}
+                  className={`sheet-type-btn${selectedType === key ? ' selected' : ''}`}
+                  onClick={() => { setSelectedType(key); setResult(null); setFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
                 >
-                  <i className={c.icon} style={{ color: selectedType === key ? c.color : '#9CA3AF' }}></i>
-                  <div>
-                    <div className="pmu-type-label">{c.label}</div>
-                    <div className="pmu-type-desc">{c.description}</div>
-                  </div>
+                  <i className={c.icon}></i>
+                  <span>{c.label}</span>
                 </button>
               ))}
             </div>
-
-            {/* Expected columns hint */}
-            {cfg && (
-              <div className="pmu-columns-hint">
-                <i className="fa-solid fa-circle-info"></i>
-                <span>Expected columns: <strong>{cfg.preview.join(', ')}</strong></span>
-              </div>
-            )}
-
-            {/* File picker */}
-            {selectedType && (
-              <>
-                <button
-                  type="button"
-                  className="pmu-btn-download-format"
-                  onClick={() => downloadFormat(selectedType)}
-                >
-                  <i className="fa-solid fa-download"></i>
-                  Download Format (.xlsx)
-                </button>
-
-                <div
-                  className="pmu-file-zone"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={handleFileChange}
-                    style={{ display: 'none' }}
-                  />
-                  {file ? (
-                    <div className="pmu-file-selected">
-                      <i className="fa-solid fa-file-excel"></i>
-                      <div>
-                        <div className="pmu-file-name">{file.name}</div>
-                        <div className="pmu-file-size">{(file.size / 1024).toFixed(1)} KB</div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="pmu-file-placeholder">
-                      <i className="fa-solid fa-cloud-arrow-up"></i>
-                      <span>Click to browse .xlsx / .xls</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Preview */}
-                {previewRows.length > 0 && (
-                  <div className="pmu-preview">
-                    <div className="pmu-preview-title">
-                      <i className="fa-solid fa-eye"></i> Preview (first {previewRows.length} rows)
-                    </div>
-                    <div className="pmu-preview-table-wrap">
-                      <table className="pmu-preview-table">
-                        <thead>
-                          <tr>
-                            {Object.keys(previewRows[0]).filter(k => k !== 'upload_session_id').map(k => (
-                              <th key={k}>{k}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {previewRows.map((row, i) => (
-                            <tr key={i}>
-                              {Object.entries(row).filter(([k]) => k !== 'upload_session_id').map(([k, v]) => (
-                                <td key={k}>{v ?? '—'}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {/* Progress */}
-                {uploading && (
-                  <div className="pmu-progress-wrap">
-                    <div className="pmu-progress-bar">
-                      <div className="pmu-progress-fill" style={{ width: `${progress}%`, background: cfg?.color }}></div>
-                    </div>
-                    <span style={{ color: cfg?.color }}>{progress}%</span>
-                  </div>
-                )}
-
-                {/* Result */}
-                {result && (
-                  <div className={`pmu-result ${result.errors.length === 0 ? 'success' : result.inserted > 0 ? 'partial' : 'failed'}`}>
-                    <div className="pmu-result-stats">
-                      <span><i className="fa-solid fa-check-circle"></i> {result.inserted} rows upserted</span>
-                      {result.skipped > 0 && <span><i className="fa-solid fa-triangle-exclamation"></i> {result.skipped} skipped</span>}
-                    </div>
-                    {result.errors.length > 0 && (
-                      <ul className="pmu-result-errors">
-                        {result.errors.map((e, i) => <li key={i}>{e}</li>)}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                <button
-                  className="pmu-btn-upload"
-                  style={{ background: cfg?.color }}
-                  onClick={handleUpload}
-                  disabled={uploading || !file}
-                >
-                  {uploading
-                    ? <><i className="fa-solid fa-spinner fa-spin"></i> Uploading…</>
-                    : <><i className="fa-solid fa-upload"></i> Upload & Upsert</>}
-                </button>
-              </>
-            )}
           </div>
 
-          {/* Recent uploads */}
-          <div className="pmu-card">
-            <div className="pmu-sessions-header">
-              <h3><i className="fa-solid fa-clock-rotate-left"></i> Recent Uploads</h3>
-              <button className="pmu-btn-refresh" onClick={fetchSessions} disabled={sessionsLoading}>
-                <i className={`fa-solid fa-rotate-right${sessionsLoading ? ' fa-spin' : ''}`}></i>
+          {selectedType && (
+            <div className="form-group">
+              <label>Choose File *</label>
+              <button type="button" className="btn-download-format" onClick={() => downloadFormat(selectedType)}>
+                <i className="fa-solid fa-download"></i> Download Format (.xlsx)
               </button>
-            </div>
-            {sessions.length === 0 ? (
-              <p className="pmu-empty">No uploads yet.</p>
-            ) : (
-              <div className="pmu-sessions-list">
-                {sessions.map(s => {
-                  const c = SHEET_CONFIGS[s.sheet_type]
-                  return (
-                    <div key={s.id} className="pmu-session-row">
-                      <i className={c?.icon || 'fa-solid fa-file'} style={{ color: c?.color || '#9CA3AF' }}></i>
-                      <div className="pmu-session-info">
-                        <div className="pmu-session-name">{c?.label || s.sheet_type}</div>
-                        <div className="pmu-session-file">{s.file_name} · {s.rows_inserted} rows · {formatDate(s.upload_date)}</div>
-                      </div>
-                      <span className="pmu-status-pill" style={{ background: statusColor(s.status) + '22', color: statusColor(s.status) }}>
-                        {s.status}
-                      </span>
-                    </div>
-                  )
-                })}
+              <div className="file-drop-zone" onClick={() => fileInputRef.current?.click()}>
+                <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange} style={{ display: 'none' }} />
+                {file ? (
+                  <div className="file-selected">
+                    <i className="fa-solid fa-file-excel"></i>
+                    <span>{file.name}</span>
+                    <small>{(file.size / 1024).toFixed(1)} KB</small>
+                  </div>
+                ) : (
+                  <div className="file-placeholder">
+                    <i className="fa-solid fa-cloud-arrow-up"></i>
+                    <span>Click to browse .xlsx / .xls</span>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Right: Current data view ── */}
-        <div className="pmu-data-panel">
-          <div className="pmu-card pmu-data-card">
-            <div className="pmu-tabs">
-              {Object.entries(SHEET_CONFIGS).map(([key, c]) => (
-                <button
-                  key={key}
-                  className={`pmu-tab${activeTab === key ? ' active' : ''}`}
-                  style={activeTab === key ? { borderColor: c.color, color: c.color } : {}}
-                  onClick={() => setActiveTab(key)}
-                >
-                  <i className={c.icon}></i> {c.label}
-                  <span className="pmu-tab-count">{tableData[key].length}</span>
-                </button>
-              ))}
-              <button className="pmu-btn-refresh pmu-tab-refresh" onClick={fetchTableData} disabled={tableLoading}>
-                <i className={`fa-solid fa-rotate-right${tableLoading ? ' fa-spin' : ''}`}></i>
-              </button>
             </div>
+          )}
 
-            <div className="pmu-table-wrap">
-              {tableLoading ? (
-                <div className="pmu-empty"><i className="fa-solid fa-spinner fa-spin"></i> Loading…</div>
-              ) : tableData[activeTab].length === 0 ? (
-                <div className="pmu-empty">
-                  <i className={SHEET_CONFIGS[activeTab].icon}></i>
-                  <p>No data yet. Upload a sheet to populate this table.</p>
-                </div>
-              ) : activeTab === 'point_master' ? (
-                <table className="pmu-data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Brand Name</th>
-                      <th>Points / Sheet</th>
-                      <th>Last Updated</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableData.point_master.map((row, i) => (
-                      <tr key={row.id}>
-                        <td>{i + 1}</td>
-                        <td><span className="pmu-brand-badge">{row.brand_name}</span></td>
-                        <td><strong style={{ color: '#7C3AED' }}>{row.points_per_sheet}</strong></td>
-                        <td className="pmu-muted">{formatDate(row.updated_at)}</td>
-                        <td>
-                          <button className="pmu-btn-del" onClick={() => handleDeleteRow('sheet_point_master', row.id)} title="Delete">
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : activeTab === 'goals_master' ? (
-                <table className="pmu-data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Employee Code</th>
-                      <th>Designation</th>
-                      <th>Monthly Goal (Sheets)</th>
-                      <th>Last Updated</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableData.goals_master.map((row, i) => (
-                      <tr key={row.id}>
-                        <td>{i + 1}</td>
-                        <td><code className="pmu-code">{row.employee_code}</code></td>
-                        <td>{row.designation || '—'}</td>
-                        <td><strong style={{ color: '#059669' }}>{row.monthly_sheet_goal}</strong></td>
-                        <td className="pmu-muted">{formatDate(row.updated_at)}</td>
-                        <td>
-                          <button className="pmu-btn-del" onClick={() => handleDeleteRow('goals_master', row.id)} title="Delete">
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : activeTab === 'brand_category' ? (
-                <table className="pmu-data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Brand Name</th>
-                      <th>Brand Category</th>
-                      <th>Last Updated</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableData.brand_category.map((row, i) => (
-                      <tr key={row.id}>
-                        <td>{i + 1}</td>
-                        <td><span className="pmu-brand-badge">{row.brand_name}</span></td>
-                        <td><strong style={{ color: '#D97706' }}>{row.brand_category}</strong></td>
-                        <td className="pmu-muted">{formatDate(row.updated_at)}</td>
-                        <td>
-                          <button className="pmu-btn-del" onClick={() => handleDeleteRow('brand_category_master', row.id)} title="Delete">
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : activeTab === 'dmi_raw_points' ? (
-                <table className="pmu-data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Tier</th>
-                      <th>Points Per DMI</th>
-                      <th>Last Updated</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableData.dmi_raw_points.map((row, i) => (
-                      <tr key={row.id}>
-                        <td>{i + 1}</td>
-                        <td><span className="pmu-brand-badge">{row.tier}</span></td>
-                        <td><strong style={{ color: '#2563EB' }}>{row.points_per_dmi}</strong></td>
-                        <td className="pmu-muted">{formatDate(row.updated_at)}</td>
-                        <td>
-                          <button className="pmu-btn-del" onClick={() => handleDeleteRow('dmi_raw_points_master', row.id)} title="Delete">
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <table className="pmu-data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>State</th>
-                      <th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>May</th><th>Jun</th>
-                      <th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th>
-                      <th>Annual</th>
-                      <th>Holidays</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableData.working_days.map((row, i) => (
-                      <tr key={row.id}>
-                        <td>{i + 1}</td>
-                        <td><span className="pmu-brand-badge">{row.state_month}</span></td>
-                        <td>{row.jan}</td><td>{row.feb}</td><td>{row.mar}</td><td>{row.apr}</td>
-                        <td>{row.may}</td><td>{row.jun}</td><td>{row.jul}</td><td>{row.aug}</td>
-                        <td>{row.sep}</td><td>{row.oct}</td><td>{row.nov}</td><td>{row.dec}</td>
-                        <td><strong style={{ color: '#0891B2' }}>{row.annual_total}</strong></td>
-                        <td><strong style={{ color: '#F59E0B' }}>{row.holidays_annual}</strong></td>
-                        <td>
-                          <button className="pmu-btn-del" onClick={() => handleDeleteRow('working_days_master', row.id)} title="Delete">
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {uploading && (
+            <div className="progress-wrap">
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+              </div>
+              <span>{progress}%</span>
+            </div>
+          )}
+
+          {result && (
+            <div className={`upload-result ${result.errors.length === 0 ? 'success' : result.inserted > 0 ? 'partial' : 'failed'}`}>
+              <div className="result-stats">
+                <span><i className="fa-solid fa-check-circle"></i> {result.inserted} rows upserted</span>
+                {result.skipped > 0 && <span><i className="fa-solid fa-triangle-exclamation"></i> {result.skipped} skipped</span>}
+              </div>
+              {result.errors.length > 0 && (
+                <ul className="result-errors">{result.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
               )}
             </div>
-          </div>
+          )}
+
+          <button className="btn-upload" onClick={handleUpload} disabled={uploading || !file || !selectedType}>
+            {uploading ? <><i className="fa-solid fa-spinner fa-spin"></i> Uploading…</> : <><i className="fa-solid fa-upload"></i> Upload</>}
+          </button>
         </div>
+      </div>
+
+      {/* Data View */}
+      <div className="sessions-card pmu-data-card">
+        <div className="pmu-tabs">
+          {Object.entries(SHEET_CONFIGS).map(([key, c]) => (
+            <button
+              key={key}
+              className={`pmu-tab${activeTab === key ? ' active' : ''}`}
+              style={activeTab === key ? { borderColor: c.color, color: c.color } : {}}
+              onClick={() => setActiveTab(key)}
+            >
+              <i className={c.icon}></i> {c.label}
+              <span className="pmu-tab-count">{tableData[key]?.length ?? 0}</span>
+            </button>
+          ))}
+          <button className="btn-refresh pmu-tab-refresh" onClick={fetchTableData} disabled={tableLoading}>
+            <i className={`fa-solid fa-rotate-right${tableLoading ? ' fa-spin' : ''}`}></i>
+          </button>
+        </div>
+
+        <div className="pmu-table-wrap">
+          {tableLoading ? (
+            <div className="pmu-empty"><i className="fa-solid fa-spinner fa-spin"></i> Loading…</div>
+          ) : tableData[activeTab]?.length === 0 ? (
+            <div className="pmu-empty">
+              <i className={SHEET_CONFIGS[activeTab]?.icon}></i>
+              <p>No data yet. Upload a sheet to populate this table.</p>
+            </div>
+          ) : activeTab === 'point_master' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>Brand Name</th><th>Points / Sheet</th><th>Last Updated</th><th></th></tr></thead>
+              <tbody>{tableData.point_master.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><span className="pmu-brand-badge">{row.brand_name}</span></td>
+                  <td><strong style={{ color: '#7C3AED' }}>{row.points_per_sheet}</strong></td>
+                  <td className="pmu-muted">{formatDate(row.updated_at)}</td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('sheet_point_master', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : activeTab === 'goals_master' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>Employee Code</th><th>Designation</th><th>Monthly Goal (Sheets)</th><th>Last Updated</th><th></th></tr></thead>
+              <tbody>{tableData.goals_master.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><code className="pmu-code">{row.employee_code}</code></td>
+                  <td>{row.designation || '—'}</td>
+                  <td><strong style={{ color: '#059669' }}>{row.monthly_sheet_goal}</strong></td>
+                  <td className="pmu-muted">{formatDate(row.updated_at)}</td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('goals_master', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : activeTab === 'brand_category' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>Brand Name</th><th>Brand Category</th><th>Last Updated</th><th></th></tr></thead>
+              <tbody>{tableData.brand_category.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><span className="pmu-brand-badge">{row.brand_name}</span></td>
+                  <td><strong style={{ color: '#D97706' }}>{row.brand_category}</strong></td>
+                  <td className="pmu-muted">{formatDate(row.updated_at)}</td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('brand_category_master', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : activeTab === 'dmi_raw_points' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>Tier</th><th>Points Per DMI</th><th>Last Updated</th><th></th></tr></thead>
+              <tbody>{tableData.dmi_raw_points.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><span className="pmu-brand-badge">{row.tier}</span></td>
+                  <td><strong style={{ color: '#2563EB' }}>{row.points_per_dmi}</strong></td>
+                  <td className="pmu-muted">{formatDate(row.updated_at)}</td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('dmi_raw_points_master', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : activeTab === 'working_days' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>State</th><th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th><th>Annual</th><th>Holidays</th><th></th></tr></thead>
+              <tbody>{tableData.working_days.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><span className="pmu-brand-badge">{row.state_month}</span></td>
+                  <td>{row.jan}</td><td>{row.feb}</td><td>{row.mar}</td><td>{row.apr}</td>
+                  <td>{row.may}</td><td>{row.jun}</td><td>{row.jul}</td><td>{row.aug}</td>
+                  <td>{row.sep}</td><td>{row.oct}</td><td>{row.nov}</td><td>{row.dec}</td>
+                  <td><strong style={{ color: '#0891B2' }}>{row.annual_total}</strong></td>
+                  <td><strong style={{ color: '#F59E0B' }}>{row.holidays_annual}</strong></td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('working_days_master', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : activeTab === 'holiday' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>Festival</th><th>Day</th><th>Date</th><th>AP</th><th>Delhi</th><th>Gujarat</th><th>Karnataka</th><th>Kerala</th><th>MH</th><th>Punjab</th><th>Rajasthan</th><th>TN</th><th>Telangana</th><th>UP</th><th>WB</th><th></th></tr></thead>
+              <tbody>{tableData.holiday.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><strong>{row.festival}</strong></td>
+                  <td>{row.day}</td><td className="pmu-muted">{row.date}</td>
+                  <td>{row.andhra_pradesh}</td><td>{row.delhi_corporate_office}</td>
+                  <td>{row.gujarat}</td><td>{row.karnataka}</td><td>{row.kerala}</td>
+                  <td>{row.maharashtra}</td><td>{row.punjab}</td><td>{row.rajasthan}</td>
+                  <td>{row.tamil_nadu}</td><td>{row.telangana}</td><td>{row.uttar_pradesh}</td><td>{row.west_bengal}</td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('holiday_master', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : activeTab === 'attendance_report' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>Name</th><th>Emp ID</th><th>State</th><th>District</th><th>Branch</th><th>Date</th><th>Time</th><th>Status</th><th>Reason</th><th>Work Hrs</th><th>Leave Type</th><th>Payroll Co.</th><th></th></tr></thead>
+              <tbody>{tableData.attendance_report.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><strong>{row.name}</strong></td>
+                  <td><code className="pmu-code">{row.employee_id}</code></td>
+                  <td>{row.state}</td><td>{row.district}</td><td>{row.branch}</td>
+                  <td className="pmu-muted">{row.attendance_date}</td><td>{row.attendance_time}</td>
+                  <td><span style={{ color: '#6366F1', fontWeight: 600 }}>{row.attendance_status}</span></td>
+                  <td>{row.attendance_reason}</td><td>{row.work_hrs}</td>
+                  <td>{row.leave_type || '—'}</td><td>{row.payroll_company}</td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('attendance_report', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : activeTab === 'working_days_report' ? (
+            <table className="pmu-data-table">
+              <thead><tr><th>#</th><th>Month</th><th>State</th><th>Working Days</th><th></th></tr></thead>
+              <tbody>{tableData.working_days_report.map((row, i) => (
+                <tr key={row.id}>
+                  <td>{i + 1}</td>
+                  <td><strong>{row.month}</strong></td>
+                  <td>{row.state}</td>
+                  <td><strong style={{ color: '#0D9488' }}>{row.working_days}</strong></td>
+                  <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('working_days_report', row.id)}><i className="fa-solid fa-trash"></i></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Recent Uploads */}
+      <div className="sessions-card">
+        <div className="sessions-header">
+          <h3><i className="fa-solid fa-clock-rotate-left"></i> Recent Uploads</h3>
+          <button className="btn-refresh" onClick={fetchSessions} disabled={sessionsLoading}>
+            <i className={`fa-solid fa-rotate-right${sessionsLoading ? ' fa-spin' : ''}`}></i>
+          </button>
+        </div>
+        {sessions.length === 0 ? (
+          <p className="no-sessions">No uploads yet.</p>
+        ) : (
+          <div className="sessions-table-wrap">
+            <table className="sessions-table">
+              <thead>
+                <tr><th>Sheet Type</th><th>File Name</th><th>Date</th><th>Rows</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {sessions.map(s => (
+                  <tr key={s.id}>
+                    <td>
+                      <span className="sheet-label">
+                        <i className={SHEET_CONFIGS[s.sheet_type]?.icon || 'fa-solid fa-file'}></i>
+                        {SHEET_CONFIGS[s.sheet_type]?.label || s.sheet_type}
+                      </span>
+                    </td>
+                    <td className="file-name-cell">{s.file_name}</td>
+                    <td>{formatDate(s.upload_date)}</td>
+                    <td>{s.rows_inserted ?? '—'}</td>
+                    <td>
+                      <span className="status-pill" style={{ background: statusColor(s.status) + '22', color: statusColor(s.status) }}>
+                        {s.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </main>
   )
