@@ -301,7 +301,13 @@ function num(v) {
   return isNaN(n) ? null : n
 }
 
-const BATCH_SIZE = 500
+const BATCH_SIZE = 200
+const MIN_RETRY_BATCH_SIZE = 25
+
+function isStatementTimeoutError(error) {
+  const msg = (error?.message || '').toLowerCase()
+  return msg.includes('statement timeout') || msg.includes('canceling statement due to statement timeout')
+}
 
 // ── Component ────────────────────────────────────────────────
 function PerformanceMasterUpload() {
@@ -415,16 +421,56 @@ function PerformanceMasterUpload() {
       let totalSkipped = 0
       const errors = []
 
+      const writeBatch = async (rows) => {
+        if (config.uniqueKey) {
+          return supabase
+            .from(config.table)
+            .upsert(rows, { onConflict: config.uniqueKey, ignoreDuplicates: false })
+        }
+        return supabase
+          .from(config.table)
+          .insert(rows)
+      }
+
+      const uploadBatchWithRetry = async (rows, label) => {
+        const { error } = await writeBatch(rows)
+
+        if (!error) {
+          return { inserted: rows.length, skipped: 0, errors: [] }
+        }
+
+        // If a large batch times out, split and retry in smaller chunks.
+        if (isStatementTimeoutError(error) && rows.length > MIN_RETRY_BATCH_SIZE) {
+          const mid = Math.ceil(rows.length / 2)
+          const left = rows.slice(0, mid)
+          const right = rows.slice(mid)
+
+          const leftResult = await uploadBatchWithRetry(left, `${label}.1`)
+          const rightResult = await uploadBatchWithRetry(right, `${label}.2`)
+
+          return {
+            inserted: leftResult.inserted + rightResult.inserted,
+            skipped: leftResult.skipped + rightResult.skipped,
+            errors: [...leftResult.errors, ...rightResult.errors],
+          }
+        }
+
+        return {
+          inserted: 0,
+          skipped: rows.length,
+          errors: [`${label}: ${error.message}`],
+        }
+      }
+
       const rowsWithSession = deduped.map(r => ({ ...r, upload_session_id: sessionId }))
       const batches = Math.ceil(rowsWithSession.length / BATCH_SIZE)
 
       for (let i = 0; i < batches; i++) {
         const batch = rowsWithSession.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
-        const { error } = await supabase
-          .from(config.table)
-          .upsert(batch, { onConflict: config.uniqueKey, ignoreDuplicates: false })
-        if (error) { errors.push(`Batch ${i + 1}: ${error.message}`); totalSkipped += batch.length }
-        else { totalInserted += batch.length }
+        const batchResult = await uploadBatchWithRetry(batch, `Batch ${i + 1}`)
+        totalInserted += batchResult.inserted
+        totalSkipped += batchResult.skipped
+        errors.push(...batchResult.errors)
         setProgress(Math.round(((i + 1) / batches) * 100))
       }
 
