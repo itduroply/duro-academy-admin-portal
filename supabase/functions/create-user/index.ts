@@ -15,6 +15,7 @@ interface CreateUserRequest {
   password?: string
   full_name: string
   employee_id: string
+  reporting_manager?: string
   role?: string
   phone?: string
   date_of_birth?: string
@@ -56,7 +57,7 @@ serve(async (req) => {
     const body: CreateUserRequest = await req.json()
     console.log('Received request to create user:', { email: body.email, employee_id: body.employee_id })
     
-    const { email, password, full_name, employee_id, role, phone, date_of_birth, date_of_joining, region_id, branch_id, sub_branch_id, department_id, sub_department_id, grade_id, designation_id } = body
+    const { email, password, full_name, employee_id, reporting_manager, role, phone, date_of_birth, date_of_joining, region_id, branch_id, sub_branch_id, department_id, sub_department_id, grade_id, designation_id } = body
 
     // Normalize phone to string; we'll store it in metadata/DB only
     const normalizedPhone = phone != null ? String(phone) : undefined
@@ -144,6 +145,7 @@ serve(async (req) => {
         email: email,
         role: role || 'user',
         employee_id: employee_id,
+        reporting_manager: reporting_manager || null,
         phone: normalizedPhone || null,
         date_of_birth: date_of_birth || null,
         date_of_joining: date_of_joining || null,
@@ -187,6 +189,7 @@ serve(async (req) => {
           full_name: full_name,
           role: role || 'user',
           employee_id: employee_id,
+          reporting_manager: reporting_manager || null,
           phone: phone
         },
         // Return password only if it was auto-generated

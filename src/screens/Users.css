@@ -572,6 +572,45 @@
   color: #9CA3AF;
 }
 
+.rm-combobox {
+  position: relative;
+}
+
+.rm-dropdown {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #D1D5DB;
+  border-radius: 0.5rem;
+  background: #FFFFFF;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+  z-index: 20;
+}
+
+.rm-option {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  color: #111827;
+  cursor: pointer;
+}
+
+.rm-option:hover {
+  background: #F3F4F6;
+}
+
+.rm-empty {
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  color: #6B7280;
+}
+
 .modal .form-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

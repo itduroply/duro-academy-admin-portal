@@ -28,12 +28,15 @@ function Users() {
   const [bulkUploadModalOpen, setBulkUploadModalOpen] = useState(false)
   const [uploadedFile, setUploadedFile] = useState(null)
   const [bulkUploadResults, setBulkUploadResults] = useState(null)
+  const [managerSearchQuery, setManagerSearchQuery] = useState('')
+  const [managerDropdownOpen, setManagerDropdownOpen] = useState(false)
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
     phone: '',
     role: 'user',
     employee_id: '',
+    reporting_manager: '',
     password: '',
     date_of_birth: '',
     date_of_joining: '',
@@ -86,6 +89,41 @@ function Users() {
         return nameA.localeCompare(nameB)
       })
   }, [users, roleFilter, departmentFilter, searchQuery])
+
+  const reportingManagerOptions = useMemo(() => {
+    const currentEmployeeId = (formData.employee_id || '').trim().toLowerCase()
+    const query = managerSearchQuery.trim().toLowerCase()
+    const uniqueMap = new Map()
+
+    users.forEach((u) => {
+      const employeeCode = (u.employeeId || '').toString().trim()
+      if (!employeeCode) return
+      if (employeeCode.toLowerCase() === currentEmployeeId) return
+      if (!uniqueMap.has(employeeCode)) {
+        uniqueMap.set(employeeCode, {
+          employee_id: employeeCode,
+          name: u.name || 'Unknown',
+        })
+      }
+    })
+
+    const allOptions = Array.from(uniqueMap.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    if (!query) return allOptions
+
+    return allOptions.filter((opt) => {
+      const name = (opt.name || '').toLowerCase()
+      const code = (opt.employee_id || '').toLowerCase()
+      return name.includes(query) || code.includes(query)
+    })
+  }, [users, formData.employee_id, managerSearchQuery])
+
+  const selectReportingManager = (manager) => {
+    setFormData(prev => ({ ...prev, reporting_manager: manager.employee_id }))
+    setManagerSearchQuery(`${manager.name} (${manager.employee_id})`)
+    setManagerDropdownOpen(false)
+  }
 
   // Fetch users and organizational data from Supabase
   useEffect(() => {
@@ -364,6 +402,7 @@ function Users() {
         phone: data.phone || '',
         role: data.role || 'user',
         employee_id: data.employee_id || '',
+        reporting_manager: data.reporting_manager || '',
         password: '', // Don't populate password for security
         date_of_birth: data.date_of_birth || '',
         date_of_joining: data.date_of_joining || '',
@@ -375,6 +414,9 @@ function Users() {
         grade_id: data.grade_id || '',
         designation_id: data.designation_id || ''
       })
+
+      const selectedManager = users.find(u => u.employeeId === data.reporting_manager)
+      setManagerSearchQuery(selectedManager ? selectedManager.name : '')
       
       // Lazy load additional data when edit modal opens
       if (regions.length === 0) {
@@ -417,6 +459,7 @@ function Users() {
         full_name: formData.full_name.trim(),
         role: formData.role || 'user',
         employee_id: formData.employee_id.trim(),
+        reporting_manager: formData.reporting_manager?.trim() || null,
         phone: formData.phone?.trim() || null,
         date_of_birth: formData.date_of_birth || null,
         date_of_joining: formData.date_of_joining || null,
@@ -473,6 +516,7 @@ function Users() {
         phone: '',
         role: 'user',
         employee_id: '',
+        reporting_manager: '',
         password: '',
         date_of_birth: '',
         date_of_joining: '',
@@ -484,6 +528,8 @@ function Users() {
         grade_id: '',
         designation_id: ''
       })
+      setManagerSearchQuery('')
+      setManagerDropdownOpen(false)
       setAddUserModalOpen(false)
       
     } catch (error) {
@@ -514,6 +560,7 @@ function Users() {
         full_name: formData.full_name,
         role: formData.role,
         employee_id: formData.employee_id,
+        reporting_manager: formData.reporting_manager || null,
         phone: formData.phone || null,
         date_of_birth: formData.date_of_birth || null,
         date_of_joining: formData.date_of_joining || null,
@@ -574,6 +621,7 @@ function Users() {
         phone: '',
         role: 'user',
         employee_id: '',
+        reporting_manager: '',
         password: '',
         date_of_birth: '',
         date_of_joining: '',
@@ -585,6 +633,8 @@ function Users() {
         grade_id: '',
         designation_id: ''
       })
+      setManagerSearchQuery('')
+      setManagerDropdownOpen(false)
       setEditingUserId(null)
       setEditUserModalOpen(false)
       setUpdatePassword(false)
@@ -632,6 +682,7 @@ function Users() {
         'Full Name*': 'John Doe',
         'Email*': 'john.doe@example.com',
         'Employee ID*': 'EMP001',
+        'Reporting Manager Employee ID': 'EMP010',
         'Password*': 'password123',
         'Phone': '123-456-7890',
         'Role': 'user',
@@ -654,7 +705,7 @@ function Users() {
     // Set column widths
     ws['!cols'] = [
       { wch: 20 }, { wch: 30 }, { wch: 15 }, { wch: 15 },
-      { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 15 },
+      { wch: 24 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 15 },
       { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
       { wch: 20 }, { wch: 15 }, { wch: 20 }
     ]
@@ -734,6 +785,7 @@ function Users() {
             password: row['Password*'],
             full_name: row['Full Name*'],
             employee_id: row['Employee ID*'],
+            reporting_manager: row['Reporting Manager Employee ID'] ? String(row['Reporting Manager Employee ID']).trim() : null,
             // Ensure phone is always sent as a string if present
             phone: row['Phone'] ? String(row['Phone']) : null,
             role: row['Role'] || 'user',
@@ -1112,6 +1164,60 @@ function Users() {
                     />
                   </div>
                 </div>
+
+                <div className="form-group">
+                  <label htmlFor="reporting_manager_combobox">Reporting Manager</label>
+                  <div className="rm-combobox">
+                    <input
+                      type="text"
+                      id="reporting_manager_combobox"
+                      value={managerSearchQuery}
+                      onFocus={() => setManagerDropdownOpen(true)}
+                      onBlur={() => setTimeout(() => setManagerDropdownOpen(false), 120)}
+                      onChange={(e) => {
+                        setManagerSearchQuery(e.target.value)
+                        setFormData(prev => ({ ...prev, reporting_manager: '' }))
+                        setManagerDropdownOpen(true)
+                      }}
+                      placeholder="Search manager by name or employee ID"
+                      autoComplete="off"
+                    />
+                    {managerDropdownOpen && (
+                      <div className="rm-dropdown" role="listbox" aria-label="Reporting manager options">
+                        <button
+                          type="button"
+                          className="rm-option"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, reporting_manager: '' }))
+                            setManagerSearchQuery('')
+                            setManagerDropdownOpen(false)
+                          }}
+                        >
+                          None
+                        </button>
+                        {reportingManagerOptions.length === 0 ? (
+                          <div className="rm-empty">No managers found</div>
+                        ) : (
+                          reportingManagerOptions.map((manager) => (
+                            <button
+                              type="button"
+                              key={manager.employee_id}
+                              className="rm-option"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => selectReportingManager(manager)}
+                            >
+                              {manager.name} ({manager.employee_id})
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <small style={{ color: '#6B7280', fontSize: '0.875rem' }}>
+                    Stored value: employee ID
+                  </small>
+                </div>
                 
                 <div className="form-row">
                   <div className="form-group">
@@ -1375,6 +1481,59 @@ function Users() {
                   placeholder="EMP001" 
                   required 
                 />
+              </div>
+              <div className="form-group">
+                <label htmlFor="edit_reporting_manager_combobox">Reporting Manager</label>
+                <div className="rm-combobox">
+                  <input
+                    type="text"
+                    id="edit_reporting_manager_combobox"
+                    value={managerSearchQuery}
+                    onFocus={() => setManagerDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setManagerDropdownOpen(false), 120)}
+                    onChange={(e) => {
+                      setManagerSearchQuery(e.target.value)
+                      setFormData(prev => ({ ...prev, reporting_manager: '' }))
+                      setManagerDropdownOpen(true)
+                    }}
+                    placeholder="Search manager by name or employee ID"
+                    autoComplete="off"
+                  />
+                  {managerDropdownOpen && (
+                    <div className="rm-dropdown" role="listbox" aria-label="Reporting manager options">
+                      <button
+                        type="button"
+                        className="rm-option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setFormData(prev => ({ ...prev, reporting_manager: '' }))
+                          setManagerSearchQuery('')
+                          setManagerDropdownOpen(false)
+                        }}
+                      >
+                        None
+                      </button>
+                      {reportingManagerOptions.length === 0 ? (
+                        <div className="rm-empty">No managers found</div>
+                      ) : (
+                        reportingManagerOptions.map((manager) => (
+                          <button
+                            type="button"
+                            key={manager.employee_id}
+                            className="rm-option"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => selectReportingManager(manager)}
+                          >
+                            {manager.name} ({manager.employee_id})
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                <small style={{ color: '#6B7280', fontSize: '0.875rem' }}>
+                  Stored value: employee ID
+                </small>
               </div>
               <div className="form-group">
                 <label htmlFor="edit_email">Email Address *</label>
