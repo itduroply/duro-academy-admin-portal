@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
-@@import { useNotification } from '../contexts/NotificationContext'
+import { useNotification } from '../contexts/NotificationContext'
 import { useAuth } from '../contexts/AuthContext'
 import './SalesDataScreen.css'
 
@@ -65,7 +65,7 @@ export default function SalesDataScreen({
 }) {
   const { user } = useAuth()
   const fileInputRef = useRef(null)
-@@  const { showNotification } = useNotification()
+  const { showNotification } = useNotification()
 
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)

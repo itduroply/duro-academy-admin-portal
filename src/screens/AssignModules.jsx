@@ -535,13 +535,13 @@ function AssignModules() {
 
   return (
     <>
-          showNotification(`Assignments removed for ${checkedRows.length} user(s).`, 'success')
+      <main className="assign-modules-main">
         <section className="assign-modules-header">
           <div>
             <h2>Assign Modules</h2>
             <p>Assign modules to users with date ranges</p>
           </div>
-          showNotification('Error removing assignments: ' + error.message, 'error')
+          <div>
             <button 
               className="btn btn-secondary" 
               onClick={() => fetchAllData()} 
