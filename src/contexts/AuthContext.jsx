@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { ROLE_PERMISSIONS, ALLOWED_ROLES, SCREENS } from '../config/permissions'
 
-const AuthContext = createContext(null)
+export const AuthContext = createContext(null)
 
 const CACHE_KEY = 'duroacademy_auth_cache'
 

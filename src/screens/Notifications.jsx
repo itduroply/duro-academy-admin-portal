@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheSet, cacheGet, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import './Notifications.css'
 
 function Notifications() {
   const mountedRef = useRef(true)
+  const { showNotification } = useNotification()
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
@@ -88,7 +90,7 @@ function Notifications() {
   const handleSend = async (e) => {
     e.preventDefault()
     if (!title.trim() || !body.trim()) {
-      alert('Title and body are required')
+      showNotification('Title and body are required', 'warning')
       return
     }
 
@@ -99,16 +101,16 @@ function Notifications() {
       let meta = {}
 
       if (targetType === 'single') {
-        if (!singleUserId) { alert('Select a user'); setSending(false); return }
+        if (!singleUserId) { showNotification('Select a user', 'warning'); setSending(false); return }
         rowsToInsert = [{ title, body, user_id: singleUserId, data: { targetType: 'single', userIds: [singleUserId] } }]
         meta = { targetType: 'single', userIds: [singleUserId] }
       } else if (targetType === 'multi') {
-        if (multiUserIds.length === 0) { alert('Select at least one user'); setSending(false); return }
+        if (multiUserIds.length === 0) { showNotification('Select at least one user', 'warning'); setSending(false); return }
         rowsToInsert = multiUserIds.map(uid => ({ title, body, user_id: uid, data: { targetType: 'multi', userIds: multiUserIds } }))
         meta = { targetType: 'multi', userIds: multiUserIds }
       } else if (targetType === 'all') {
         const allIds = users.map(u => u.id)
-        if (allIds.length === 0) { alert('No users available'); setSending(false); return }
+        if (allIds.length === 0) { showNotification('No users available', 'warning'); setSending(false); return }
         rowsToInsert = allIds.map(uid => ({ title, body, user_id: uid, data: { targetType: 'all', userIds: allIds } }))
         meta = { targetType: 'all', userIds: allIds }
       }
@@ -129,7 +131,7 @@ function Notifications() {
       // Notifications will be sent automatically via database webhook trigger
       // The webhook triggers the send-notification edge function on INSERT
       
-      alert('Notification(s) created successfully! They will be sent automatically.')
+      showNotification('Notification(s) created successfully! They will be sent automatically.', 'success')
       resetForm()
       fetchData()
     } catch (e) {
@@ -160,7 +162,7 @@ function Notifications() {
         if (updated) setSelected(updated)
       }
     } catch (e) {
-      alert('Failed to update status: ' + e.message)
+      showNotification('Failed to update status: ' + e.message, 'error')
     }
   }
 
@@ -181,7 +183,7 @@ function Notifications() {
       }
       await fetchData()
     } catch (e) {
-      alert('Bulk update failed: ' + e.message)
+      showNotification('Bulk update failed: ' + e.message, 'error')
     }
   }
 

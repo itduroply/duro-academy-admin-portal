@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
+import { useNotification } from '../contexts/NotificationContext'
 import './ExcelUpload.css'
 import './SalesDataDownload.css'
 
@@ -246,51 +247,66 @@ const SHEET_DOWNLOAD_CONFIGS = {
   },
 }
 
-async function fetchAllRows(table) {
-  let from = 0
+async function fetchAllRows(table, columns) {
+  const fields = Array.isArray(columns) ? columns.map((c) => c.field).filter(Boolean) : []
+  const selectExpr = ['id', ...new Set(fields)].join(',')
+
   let all = []
-  let hasMore = true
+  let lastId = null
 
-  while (hasMore) {
-    const { data, error } = await supabase
+  while (true) {
+    let query = supabase
       .from(table)
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1)
+      .select(selectExpr)
+      .order('id', { ascending: true })
+      .limit(PAGE_SIZE)
 
+    if (lastId) query = query.gt('id', lastId)
+
+    const { data, error } = await query
     if (error) throw error
     if (!data || data.length === 0) break
 
     all = all.concat(data)
-    from += PAGE_SIZE
-    hasMore = data.length === PAGE_SIZE
+    lastId = data[data.length - 1].id
+    if (data.length < PAGE_SIZE) break
   }
 
   return all
 }
 
-function buildSheet(rows) {
-  if (!rows || rows.length === 0) {
+function buildSheet(rows, columns) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const safeColumns = Array.isArray(columns) ? columns : []
+
+  if (safeColumns.length === 0) {
     return XLSX.utils.json_to_sheet([])
   }
 
-  // Use exact table column names as returned by Supabase select('*').
-  const headers = Object.keys(rows[0])
-  const mappedRows = rows.map(row => {
+  const mappedRows = safeRows.map((row) => {
     const out = {}
-    headers.forEach(header => {
-      const value = row[header]
-      out[header] = value === null || value === undefined ? '' : value
+    safeColumns.forEach((col) => {
+      const value = row?.[col.field]
+      out[col.header] = value === null || value === undefined ? '' : value
     })
     return out
   })
 
-  return XLSX.utils.json_to_sheet(mappedRows, { header: headers, skipHeader: false })
+  // Ensure header row exists even when there is no data.
+  if (mappedRows.length === 0) {
+    return XLSX.utils.json_to_sheet([], { header: safeColumns.map((c) => c.header) })
+  }
+
+  return XLSX.utils.json_to_sheet(mappedRows, {
+    header: safeColumns.map((c) => c.header),
+    skipHeader: false,
+  })
 }
 
 function SalesDataDownload() {
   const [downloadingKey, setDownloadingKey] = useState('')
   const [downloadingAll, setDownloadingAll] = useState(false)
+  const { showNotification } = useNotification()
   const [counts, setCounts] = useState({})
   const [loadingCounts, setLoadingCounts] = useState(true)
 
@@ -323,14 +339,14 @@ function SalesDataDownload() {
 
     try {
       setDownloadingKey(key)
-      const rows = await fetchAllRows(cfg.table)
-      const ws = buildSheet(rows)
+      const rows = await fetchAllRows(cfg.table, cfg.columns)
+      const ws = buildSheet(rows, cfg.columns)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, cfg.sheetName)
       XLSX.writeFile(wb, cfg.fileName)
     } catch (err) {
       console.error(err)
-      alert(`Failed to download ${cfg.label}: ${err.message}`)
+      showNotification(`Failed to download ${cfg.label}: ${err.message}`, 'error')
     } finally {
       setDownloadingKey('')
     }
@@ -342,15 +358,15 @@ function SalesDataDownload() {
       const wb = XLSX.utils.book_new()
 
       for (const [, cfg] of sheetEntries) {
-        const rows = await fetchAllRows(cfg.table)
-        const ws = buildSheet(rows)
+        const rows = await fetchAllRows(cfg.table, cfg.columns)
+        const ws = buildSheet(rows, cfg.columns)
         XLSX.utils.book_append_sheet(wb, ws, cfg.sheetName)
       }
 
       XLSX.writeFile(wb, 'SalesData_AllSheets.xlsx')
     } catch (err) {
       console.error(err)
-      alert(`Failed to download all sheets: ${err.message}`)
+      showNotification(`Failed to download all sheets: ${err.message}`, 'error')
     } finally {
       setDownloadingAll(false)
     }

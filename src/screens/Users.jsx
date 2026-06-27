@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import * as XLSX from 'xlsx'
 import './Users.css'
 
 function Users() {
+  const { showNotification } = useNotification()
   const mountedRef = useRef(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -28,6 +30,7 @@ function Users() {
   const [bulkUploadModalOpen, setBulkUploadModalOpen] = useState(false)
   const [uploadedFile, setUploadedFile] = useState(null)
   const [bulkUploadResults, setBulkUploadResults] = useState(null)
+  const [exportingUsers, setExportingUsers] = useState(false)
   const [managerSearchQuery, setManagerSearchQuery] = useState('')
   const [managerDropdownOpen, setManagerDropdownOpen] = useState(false)
   const [formData, setFormData] = useState({
@@ -40,6 +43,8 @@ function Users() {
     password: '',
     date_of_birth: '',
     date_of_joining: '',
+    leaving_date: '',
+    status: 'active',
     region_id: '',
     branch_id: '',
     sub_branch_id: '',
@@ -182,23 +187,35 @@ function Users() {
 
         const data = allRows
         
-        // Get unique designation and department IDs
+        // Get unique lookup IDs
         const designationIds = [...new Set(data?.map(u => u.designation_id).filter(Boolean))]
         const departmentIds = [...new Set(data?.map(u => u.department_id).filter(Boolean))]
+        const branchIds = [...new Set(data?.map(u => u.branch_id).filter(Boolean))]
+        const subBranchIds = [...new Set(data?.map(u => u.sub_branch_id).filter(Boolean))]
         
-        // Fetch designations and departments in parallel if there are any
-        const [designationsData, departmentsData] = await Promise.all([
+        // Fetch lookups in parallel if there are any
+        const [designationsData, departmentsData, branchesData, subBranchesData] = await Promise.all([
           designationIds.length > 0 
             ? supabase.from('designations').select('id, designation_name').in('id', designationIds)
             : Promise.resolve({ data: [] }),
           departmentIds.length > 0
             ? supabase.from('departments').select('id, department_name').in('id', departmentIds)
             : Promise.resolve({ data: [] })
+          ,
+          branchIds.length > 0
+            ? supabase.from('branches').select('id, branch_name').in('id', branchIds)
+            : Promise.resolve({ data: [] })
+          ,
+          subBranchIds.length > 0
+            ? supabase.from('sub_branches').select('id, sub_branch_name').in('id', subBranchIds)
+            : Promise.resolve({ data: [] })
         ])
         
         // Create lookup maps for faster access
         const designationMap = new Map(designationsData.data?.map(d => [d.id, d.designation_name]) || [])
         const departmentMap = new Map(departmentsData.data?.map(d => [d.id, d.department_name]) || [])
+        const branchMap = new Map(branchesData.data?.map(b => [b.id, b.branch_name]) || [])
+        const subBranchMap = new Map(subBranchesData.data?.map(sb => [sb.id, sb.sub_branch_name]) || [])
         
         // Transform data to match component expectations
         return data?.map(user => ({
@@ -208,7 +225,10 @@ function Users() {
           phone: user.phone,
           designation: designationMap.get(user.designation_id) || 'N/A',
           department: departmentMap.get(user.department_id) || 'N/A',
+          branch: branchMap.get(user.branch_id) || 'N/A',
+          subBranch: subBranchMap.get(user.sub_branch_id) || 'N/A',
           role: user.role || 'user',
+          status: String(user.status || '').trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active',
           employeeId: user.employee_id,
           progress: 0,
           createdAt: new Date(user.created_at).toISOString().split('T')[0]
@@ -376,6 +396,11 @@ function Users() {
     setTimeout(() => setSelectedUser(null), 300)
   }
 
+  const normalizeEmploymentStatus = (value) => {
+    const normalized = String(value || '').trim().toLowerCase()
+    return normalized === 'inactive' ? 'inactive' : 'active'
+  }
+
   const handleInputChange = (e) => {
     const { name, value } = e.target
     setFormData(prev => ({
@@ -406,6 +431,8 @@ function Users() {
         password: '', // Don't populate password for security
         date_of_birth: data.date_of_birth || '',
         date_of_joining: data.date_of_joining || '',
+        leaving_date: data.leaving_date || '',
+        status: normalizeEmploymentStatus(data.status),
         region_id: data.region_id || '',
         branch_id: data.branch_id || '',
         sub_branch_id: data.sub_branch_id || '',
@@ -426,7 +453,7 @@ function Users() {
       setEditingUserId(user.id)
       setEditUserModalOpen(true)
     } catch (error) {
-      alert('Failed to load user data: ' + error.message)
+      showNotification('Failed to load user data: ' + error.message, 'error')
     }
   }
 
@@ -440,6 +467,7 @@ function Users() {
       // Validate required fields
       if (!formData.full_name || !formData.email || !formData.employee_id) {
         setErrorMessage('Please fill in all required fields: Full Name, Email, and Employee ID')
+        showNotification('Please fill in all required fields: Full Name, Email, and Employee ID', 'warning')
         setLoading(false)
         return
       }
@@ -463,6 +491,8 @@ function Users() {
         phone: formData.phone?.trim() || null,
         date_of_birth: formData.date_of_birth || null,
         date_of_joining: formData.date_of_joining || null,
+        leaving_date: formData.leaving_date || null,
+        status: normalizeEmploymentStatus(formData.status),
         region_id: formData.region_id ? parseInt(formData.region_id) : null,
         branch_id: formData.branch_id ? parseInt(formData.branch_id) : null,
         sub_branch_id: formData.sub_branch_id ? parseInt(formData.sub_branch_id) : null,
@@ -501,9 +531,9 @@ function Users() {
 
       // Show generated password if auto-created
       if (fnData.generatedPassword) {
-        alert(`User created successfully!\n\nAuto-generated password: ${fnData.generatedPassword}\n\nPlease save this password and share it securely with the user.`)
+        showNotification(`User created successfully!\n\nAuto-generated password: ${fnData.generatedPassword}\n\nPlease save this password and share it securely with the user.`, 'success')
       } else {
-        alert('User created successfully!')
+        showNotification('User created successfully!', 'success')
       }
 
       // Refresh users list (force cache refresh)
@@ -520,6 +550,8 @@ function Users() {
         password: '',
         date_of_birth: '',
         date_of_joining: '',
+        leaving_date: '',
+        status: 'active',
         region_id: '',
         branch_id: '',
         sub_branch_id: '',
@@ -535,8 +567,8 @@ function Users() {
     } catch (error) {
       console.error('User creation error:', error)
       const errorMsg = error.message || 'Failed to create user. Please try again.'
-      setErrorMessage(errorMsg)
-      alert(`Failed to add user: ${errorMsg}`)
+      showNotification(`Failed to add user: ${errorMsg}`, 'error')
+
     } finally {
       setLoading(false)
     }
@@ -550,7 +582,7 @@ function Users() {
       
       // Validate required fields
       if (!formData.full_name || !formData.email || !formData.employee_id) {
-        alert('Please fill in all required fields: Full Name, Email, and Employee ID')
+        showNotification('Please fill in all required fields: Full Name, Email, and Employee ID', 'warning')
         setLoading(false)
         return
       }
@@ -564,6 +596,8 @@ function Users() {
         phone: formData.phone || null,
         date_of_birth: formData.date_of_birth || null,
         date_of_joining: formData.date_of_joining || null,
+        leaving_date: formData.leaving_date || null,
+        status: normalizeEmploymentStatus(formData.status),
         region_id: formData.region_id ? parseInt(formData.region_id) : null,
         branch_id: formData.branch_id ? parseInt(formData.branch_id) : null,
         sub_branch_id: formData.sub_branch_id ? parseInt(formData.sub_branch_id) : null,
@@ -609,7 +643,7 @@ function Users() {
         }
       }
 
-      alert('User updated successfully!')
+      showNotification('User updated successfully!', 'success')
 
       // Refresh users list (force cache refresh)
       await fetchUsers(true)
@@ -625,6 +659,8 @@ function Users() {
         password: '',
         date_of_birth: '',
         date_of_joining: '',
+        leaving_date: '',
+        status: 'active',
         region_id: '',
         branch_id: '',
         sub_branch_id: '',
@@ -640,7 +676,7 @@ function Users() {
       setUpdatePassword(false)
       
     } catch (error) {
-      alert(`Failed to update user: ${error.message}`)
+      showNotification(`Failed to update user: ${error.message}`, 'error')
     } finally {
       setLoading(false)
     }
@@ -659,19 +695,68 @@ function Users() {
 
       if (error) {
         if (/row-level security/i.test(error.message)) {
-          alert('RLS blocked delete. Ensure admin DELETE policy exists on public.users. See SUPABASE_SETUP.md Users policies.')
+          showNotification('RLS blocked delete. Ensure admin DELETE policy exists on public.users. See SUPABASE_SETUP.md Users policies.', 'error')
         } else {
-          alert('Failed to delete user: ' + error.message)
+          showNotification('Failed to delete user: ' + error.message, 'error')
         }
         return
       }
 
       await fetchUsers(true)
-      alert('User deleted')
+      showNotification('User deleted', 'success')
     } catch (err) {
-      alert('Failed to delete user: ' + (err.message || 'Unknown error'))
+      showNotification('Failed to delete user: ' + (err.message || 'Unknown error'), 'error')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleToggleStatus = async (e, user) => {
+    e.stopPropagation()
+    try {
+      const newStatus = user.status === 'Active' ? 'inactive' : 'active'
+
+      setUsers(prevUsers =>
+        prevUsers.map(currentUser =>
+          currentUser.id === user.id
+            ? { ...currentUser, status: newStatus === 'inactive' ? 'Inactive' : 'Active' }
+            : currentUser
+        )
+      )
+
+      if (selectedUser?.id === user.id) {
+        setSelectedUser(prevUser =>
+          prevUser ? { ...prevUser, status: newStatus === 'inactive' ? 'Inactive' : 'Active' } : prevUser
+        )
+      }
+
+      const { error } = await supabase
+        .from('users')
+        .update({ status: newStatus })
+        .eq('id', user.id)
+
+      if (error) {
+        setUsers(prevUsers =>
+          prevUsers.map(currentUser =>
+            currentUser.id === user.id
+              ? { ...currentUser, status: user.status }
+              : currentUser
+          )
+        )
+
+        if (selectedUser?.id === user.id) {
+          setSelectedUser(prevUser =>
+            prevUser ? { ...prevUser, status: user.status } : prevUser
+          )
+        }
+
+        showNotification('Failed to update status: ' + error.message, 'error')
+        return
+      }
+
+      cacheDelete('users_screen_data').catch(() => {})
+    } catch (err) {
+      showNotification('Failed to update status: ' + (err.message || 'Unknown error'), 'error')
     }
   }
 
@@ -713,10 +798,56 @@ function Users() {
     XLSX.writeFile(wb, 'users_bulk_upload_template.xlsx')
   }
 
+  const downloadAllUsersData = () => {
+    if (!users.length) {
+      showNotification('No users available to export', 'warning')
+      return
+    }
+
+    try {
+      setExportingUsers(true)
+
+      const exportRows = users.map((user) => ({
+        Name: user.name || '',
+        Email: user.email || '',
+        Phone: user.phone || '',
+        'Employee ID': user.employeeId || '',
+        Designation: user.designation || '',
+        Department: user.department || '',
+        Branch: user.branch || '',
+        'Sub Branch': user.subBranch || '',
+        Role: user.role || '',
+        'Created At': user.createdAt || '',
+      }))
+
+      const ws = XLSX.utils.json_to_sheet(exportRows)
+      ws['!cols'] = [
+        { wch: 26 },
+        { wch: 32 },
+        { wch: 18 },
+        { wch: 16 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 24 },
+        { wch: 24 },
+        { wch: 12 },
+        { wch: 14 },
+      ]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Users')
+      XLSX.writeFile(wb, `users_data_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (error) {
+      showNotification('Failed to export users: ' + (error?.message || 'Unknown error'), 'error')
+    } finally {
+      setExportingUsers(false)
+    }
+  }
+
   // Process bulk upload
   const handleBulkUpload = async () => {
     if (!uploadedFile) {
-      alert('Please select a file first')
+      showNotification('Please select a file first', 'warning')
       return
     }
 
@@ -730,7 +861,7 @@ function Users() {
       const jsonData = XLSX.utils.sheet_to_json(worksheet)
 
       if (jsonData.length === 0) {
-        alert('The Excel file is empty')
+        showNotification('The Excel file is empty', 'warning')
         setLoading(false)
         return
       }
@@ -827,7 +958,7 @@ function Users() {
       await fetchUsers(true)
 
     } catch (error) {
-      alert(`Failed to process file: ${error.message}`)
+      showNotification(`Failed to process file: ${error.message}`, 'error')
     } finally {
       setLoading(false)
     }
@@ -928,6 +1059,10 @@ function Users() {
               <button className="btn btn-secondary" onClick={() => fetchUsers(true)} disabled={loading}>
                 <i className={`fa-solid fa-refresh ${loading ? 'fa-spin' : ''}`}></i>Refresh
               </button>
+              <button className="btn btn-secondary" onClick={downloadAllUsersData} disabled={loading || exportingUsers}>
+                <i className={`fa-solid ${exportingUsers ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
+                {exportingUsers ? 'Exporting...' : 'Download Users'}
+              </button>
               <button className="btn btn-secondary" onClick={() => setBulkUploadModalOpen(true)}>
                 <i className="fa-solid fa-file-excel"></i>Bulk Upload
               </button>
@@ -995,22 +1130,23 @@ function Users() {
                     <th>Name</th>
                     <th>Designation</th>
                     <th>Role</th>
-                    <th>Progress</th>
-                    <th>Created At</th>
+                    <th>Branch</th>
+                    <th>Sub Branch</th>
+                    <th>Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '2rem' }}>
                         <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#4F46E5' }}></i>
                         <p style={{ marginTop: '1rem', color: '#6B7280' }}>Loading users...</p>
                       </td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '2rem' }}>
                         <i className="fa-solid fa-users" style={{ fontSize: '2rem', color: '#9CA3AF' }}></i>
                         <p style={{ marginTop: '1rem', color: '#6B7280' }}>No users found. Add your first user!</p>
                       </td>
@@ -1029,15 +1165,24 @@ function Users() {
                         <td>
                           <span className={`role-badge ${user.role.toLowerCase()}`}>{user.role}</span>
                         </td>
+                        <td>{user.branch}</td>
+                        <td>{user.subBranch}</td>
                         <td>
-                          <div className="progress-wrapper">
-                            <div className="progress-bar">
-                              <div className="progress-fill" style={{ width: `${user.progress}%` }}></div>
-                            </div>
-                            <span className="progress-text">{user.progress}%</span>
-                          </div>
+                          <label
+                            className={`toggle-switch ${user.status.toLowerCase()}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={user.status === 'Active'}
+                              onChange={(e) => handleToggleStatus(e, user)}
+                              onClick={(e) => e.stopPropagation()}
+                              title={`Click to toggle to ${user.status === 'Active' ? 'Inactive' : 'Active'}`}
+                            />
+                            <span className="slider"></span>
+                            <span className="toggle-label">{user.status === 'Active' ? 'Active' : 'Inactive'}</span>
+                          </label>
                         </td>
-                        <td>{user.createdAt}</td>
                         <td>
                           <div className="action-buttons">
                             <button className="action-btn edit-btn" onClick={(e) => { e.stopPropagation(); openEditModal(user); }}>
@@ -1423,6 +1568,31 @@ function Users() {
                     />
                   </div>
                 </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="leaving_date">Leaving Date</label>
+                    <input
+                      type="date"
+                      id="leaving_date"
+                      name="leaving_date"
+                      value={formData.leaving_date}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="status">Status</label>
+                    <select
+                      id="status"
+                      name="status"
+                      value={formData.status}
+                      onChange={handleInputChange}
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                </div>
               </div>
               
               <div className="modal-footer">
@@ -1752,6 +1922,30 @@ function Users() {
                     value={formData.date_of_joining}
                     onChange={handleInputChange}
                   />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="edit_leaving_date">Leaving Date</label>
+                  <input
+                    type="date"
+                    id="edit_leaving_date"
+                    name="leaving_date"
+                    value={formData.leaving_date}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="edit_status">Status</label>
+                  <select
+                    id="edit_status"
+                    name="status"
+                    value={formData.status}
+                    onChange={handleInputChange}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
                 </div>
               </div>
               <div className="modal-footer">

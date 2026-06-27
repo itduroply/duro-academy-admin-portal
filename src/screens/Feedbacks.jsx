@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
+import { useNotification } from '../contexts/NotificationContext'
 import { cacheSet, cacheGet, cachedFetch, TTL } from '../utils/cacheDB'
 import './Feedbacks.css'
 
@@ -122,7 +124,7 @@ function Feedbacks() {
       if (selected && selected.id === id) closePanel()
       await fetchFeedbacks()
     } catch (e) {
-      alert('Failed to delete: ' + e.message)
+      showNotification('Failed to delete: ' + e.message, 'error')
     } finally {
       setDeleting(false)
     }

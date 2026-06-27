@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { metaSet } from '../utils/cacheDB'
+import { getDefaultRouteForScreens, ROLE_PERMISSIONS, ALLOWED_ROLES, SCREENS } from '../config/permissions'
+import { useAuth } from '../contexts/AuthContext'
 import './Login.css'
 
 function Login() {
@@ -11,6 +13,7 @@ function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const { refreshPermissions } = useAuth()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -33,8 +36,35 @@ function Login() {
         metaSet('adminEmail', email).catch(() => {})
       }
 
-      // Navigate to dashboard
-      navigate('/dashboard')
+      const { data: userRecord, error: userRecordError } = await supabase
+        .from('users')
+        .select('id, role')
+        .eq('email', email)
+        .single()
+
+      if (userRecordError) throw userRecordError
+
+      let defaultRoute = '/dashboard'
+      if (userRecord?.role === 'admin') {
+        const { data: permissionsData, error: permissionsError } = await supabase
+          .from('admin_permissions')
+          .select('allowed_screens')
+          .eq('user_id', userRecord.id)
+          .maybeSingle()
+
+        if (permissionsError && permissionsError.code !== 'PGRST116') throw permissionsError
+
+        const allowedScreens = Array.isArray(permissionsData?.allowed_screens)
+          ? permissionsData.allowed_screens
+          : ROLE_PERMISSIONS.admin
+
+        defaultRoute = getDefaultRouteForScreens(allowedScreens, userRecord.role)
+        await refreshPermissions()
+      } else if (userRecord?.role === 'super_admin') {
+        defaultRoute = '/dashboard'
+      }
+
+      navigate(defaultRoute)
     } catch (error) {
       console.error('Login error:', error)
       setError(error.message || 'Invalid email or password')
@@ -82,7 +112,7 @@ function Login() {
 
             <form className="login-form" onSubmit={handleSubmit}>
               <div className="form-group">
-                <label htmlFor="email">Email / Employee ID</label>
+                <label htmlFor="email">Email</label>
                 <div className="input-wrapper">
                   <span className="input-icon">
                     <i className="fa-regular fa-envelope"></i>

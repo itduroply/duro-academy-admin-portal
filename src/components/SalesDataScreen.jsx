@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
+@@import { useNotification } from '../contexts/NotificationContext'
 import { useAuth } from '../contexts/AuthContext'
 import './SalesDataScreen.css'
 
@@ -64,6 +65,7 @@ export default function SalesDataScreen({
 }) {
   const { user } = useAuth()
   const fileInputRef = useRef(null)
+@@  const { showNotification } = useNotification()
 
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -132,6 +134,7 @@ export default function SalesDataScreen({
 
   const handleUpload = async () => {
     if (!file) return alert('Please choose an Excel file.')
+      if (!file) return showNotification('Please choose an Excel file.', 'warning')
     setUploading(true)
     setProgress(0)
     setResult(null)

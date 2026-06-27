@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import './AssignModules.css'
 
 function AssignModules() {
   const mountedRef = useRef(true)
   const [loading, setLoading] = useState(true)
+  const { showNotification } = useNotification()
   const [assignModalOpen, setAssignModalOpen] = useState(false)
   const [users, setUsers] = useState([])
   const [modules, setModules] = useState([])
@@ -216,30 +218,30 @@ function AssignModules() {
     e.preventDefault()
 
     if (assignType === 'single' && !selectedUser) {
-      alert('Please select a user')
+      showNotification('Please select a user', 'warning')
       return
     }
     if (assignType === 'multiple' && selectedUsers.length === 0) {
-      alert('Please select at least one user')
+      showNotification('Please select at least one user', 'warning')
       return
     }
     if (assignType === 'department' && !selectedDepartment) {
-      alert('Please select a department')
+      showNotification('Please select a department', 'warning')
       return
     }
 
     if (selectedModules.length === 0) {
-      alert('Please select at least one module')
+      showNotification('Please select at least one module', 'warning')
       return
     }
 
     if (!startDate || !endDate) {
-      alert('Please select both start and end dates')
+      showNotification('Please select both start and end dates', 'warning')
       return
     }
 
     if (new Date(endDate) < new Date(startDate)) {
-      alert('End date must be after start date')
+      showNotification('End date must be after start date', 'warning')
       return
     }
 
@@ -259,7 +261,7 @@ function AssignModules() {
           .eq('department_id', selectedDepartment)
         if (deptError) throw deptError
         if (!deptUsers || deptUsers.length === 0) {
-          alert('No users found in the selected department')
+            showNotification('No users found in the selected department', 'warning')
           setLoading(false)
           return
         }
@@ -303,7 +305,7 @@ function AssignModules() {
         : editingUserId
         ? `Modules updated successfully!`
         : `Modules assigned successfully to ${targetUserIds.length} user(s)!`
-      alert(msg)
+      showNotification(msg, 'success')
 
       // Reset form
       setSelectedUser('')
@@ -324,7 +326,7 @@ function AssignModules() {
 
     } catch (error) {
       console.error('Error assigning modules:', error)
-      alert('Error assigning modules: ' + error.message)
+            showNotification('Error assigning modules: ' + error.message, 'error')
     } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -342,12 +344,12 @@ function AssignModules() {
 
       if (error) throw error
 
-      alert('Assignment removed successfully!')
+      showNotification('Assignment removed successfully!', 'success')
       await cacheDelete('user_module_assignments')
       await fetchAssignments()
     } catch (error) {
       console.error('Error deleting assignment:', error)
-      alert('Error removing assignment: ' + error.message)
+      showNotification('Error removing assignment: ' + error.message, 'error')
     } finally {
       setLoading(false)
     }
@@ -357,11 +359,11 @@ function AssignModules() {
     e.preventDefault()
     if (checkedRows.length === 0) return
     if (!bulkEditStart && !bulkEditEnd && !bulkEditStatus) {
-      alert('Please fill at least one field to update.')
+      showNotification('Please fill at least one field to update.', 'warning')
       return
     }
     if (bulkEditStart && bulkEditEnd && new Date(bulkEditEnd) < new Date(bulkEditStart)) {
-      alert('End date must be after start date.')
+      showNotification('End date must be after start date.', 'warning')
       return
     }
     try {
@@ -375,7 +377,7 @@ function AssignModules() {
         .update(updates)
         .in('user_id', checkedRows)
       if (error) throw error
-      alert(`Assignments updated for ${checkedRows.length} user(s).`)
+      showNotification(`Assignments updated for ${checkedRows.length} user(s).`, 'success')
       setBulkEditModalOpen(false)
       setBulkEditStart('')
       setBulkEditEnd('')
@@ -385,7 +387,7 @@ function AssignModules() {
       await fetchAssignments()
     } catch (error) {
       console.error('Error bulk editing:', error)
-      alert('Error updating assignments: ' + error.message)
+      showNotification('Error updating assignments: ' + error.message, 'error')
     } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -401,13 +403,13 @@ function AssignModules() {
         .delete()
         .in('user_id', checkedRows)
       if (error) throw error
-      alert(`Assignments removed for ${checkedRows.length} user(s).`)
+      showNotification(`Assignments removed for ${checkedRows.length} user(s).`, 'success')
       setCheckedRows([])
       await cacheDelete('user_module_assignments')
       await fetchAssignments()
     } catch (error) {
       console.error('Error bulk deleting:', error)
-      alert('Error removing assignments: ' + error.message)
+      showNotification('Error removing assignments: ' + error.message, 'error')
     } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -425,13 +427,13 @@ function AssignModules() {
 
       if (error) throw error
 
-      alert('All assignments removed successfully!')
+      showNotification('All assignments removed successfully!', 'success')
       await cacheDelete('user_module_assignments')
       await fetchAssignments()
       setDetailDrawerOpen(false)
     } catch (error) {
       console.error('Error deleting assignments:', error)
-      alert('Error removing assignments: ' + error.message)
+      showNotification('Error removing assignments: ' + error.message, 'error')
     } finally {
       setLoading(false)
     }
@@ -533,13 +535,13 @@ function AssignModules() {
 
   return (
     <>
-      <main className="assign-modules-main">
+          showNotification(`Assignments removed for ${checkedRows.length} user(s).`, 'success')
         <section className="assign-modules-header">
           <div>
             <h2>Assign Modules</h2>
             <p>Assign modules to users with date ranges</p>
           </div>
-          <div className="action-buttons">
+          showNotification('Error removing assignments: ' + error.message, 'error')
             <button 
               className="btn btn-secondary" 
               onClick={() => fetchAllData()} 

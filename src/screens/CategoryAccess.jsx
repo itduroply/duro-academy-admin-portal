@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import './CategoryAccess.css'
 
 function CategoryAccess() {
   const mountedRef = useRef(true)
   const [loading, setLoading] = useState(true)
+  const { showNotification } = useNotification()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -193,11 +195,11 @@ function CategoryAccess() {
     e.preventDefault()
 
     if (selectedDepartments.length === 0) {
-      alert('Please select at least one department')
+      showNotification('Please select at least one department', 'warning')
       return
     }
     if (selectedCategories.length === 0) {
-      alert('Please select at least one category')
+      showNotification('Please select at least one category', 'warning')
       return
     }
 
@@ -234,7 +236,7 @@ function CategoryAccess() {
         }
       }
 
-      alert(editingDeptId ? 'Category access updated!' : 'Categories assigned successfully!')
+      showNotification(editingDeptId ? 'Category access updated!' : 'Categories assigned successfully!', 'success')
       setAssignModalOpen(false)
       setEditingDeptId(null)
       setSelectedDepartments([])
@@ -243,7 +245,7 @@ function CategoryAccess() {
       await fetchAssignments()
     } catch (err) {
       console.error('[CategoryAccess] Save error:', err)
-      alert('Error: ' + err.message)
+      showNotification('Error: ' + err.message, 'error')
     } finally {
       setSaving(false)
     }
@@ -258,12 +260,12 @@ function CategoryAccess() {
         .delete()
         .eq('department_id', deptId)
       if (error) throw error
-      alert('Category access removed!')
+      showNotification('Category access removed!', 'success')
       await cacheDelete('category_dept_access')
       await fetchAssignments()
     } catch (err) {
       console.error('[CategoryAccess] Delete error:', err)
-      alert('Error: ' + err.message)
+      showNotification('Error: ' + err.message, 'error')
     } finally {
       setSaving(false)
     }
@@ -281,7 +283,7 @@ function CategoryAccess() {
       await fetchAssignments()
     } catch (err) {
       console.error('[CategoryAccess] Delete error:', err)
-      alert('Error: ' + err.message)
+      showNotification('Error: ' + err.message, 'error')
     } finally {
       setSaving(false)
     }

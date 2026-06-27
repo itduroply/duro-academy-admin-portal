@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import './Videos.css'
 
 function Videos() {
   const mountedRef = useRef(true)
+  const { showNotification } = useNotification()
   const [videos, setVideos] = useState([])
   const [modules, setModules] = useState([])
   const [quizzes, setQuizzes] = useState([])
@@ -182,9 +184,9 @@ function Videos() {
   }
 
   const handleSave = async () => {
-    if (!formData.title.trim()) { alert('Please enter a video title'); return }
-    if (!formData.bunny_video_id.trim()) { alert('Please enter the Bunny Video ID'); return }
-    if (!formData.playback_url.trim()) { alert('Please enter the Playback URL'); return }
+    if (!formData.title.trim()) { showNotification('Please enter a video title', 'warning'); return }
+    if (!formData.bunny_video_id.trim()) { showNotification('Please enter the Bunny Video ID', 'warning'); return }
+    if (!formData.playback_url.trim()) { showNotification('Please enter the Playback URL', 'warning'); return }
 
     try {
       setSaving(true)
@@ -202,11 +204,11 @@ function Videos() {
       if (editMode) {
         const { error } = await supabase.from('videos').update(payload).eq('id', editingVideoId)
         if (error) throw error
-        alert('Video updated successfully!')
+        showNotification('Video updated successfully!', 'success')
       } else {
         const { error } = await supabase.from('videos').insert([payload])
         if (error) throw error
-        alert('Video added successfully!')
+        showNotification('Video added successfully!', 'success')
       }
 
       setModalOpen(false)
@@ -221,7 +223,7 @@ function Videos() {
       }
     } catch (err) {
       console.error('Error saving video:', err)
-      alert('Failed to save video: ' + (err.message || 'Unknown error'))
+      showNotification('Failed to save video: ' + (err.message || 'Unknown error'), 'error')
     } finally {
       setSaving(false)
     }
@@ -237,10 +239,10 @@ function Videos() {
       await cacheDelete('videos_list')
       await fetchVideos()
       if (selectedVideo?.id === videoId) { setDrawerOpen(false); setSelectedVideo(null) }
-      alert('Video deleted successfully!')
+      showNotification('Video deleted successfully!', 'success')
     } catch (err) {
       console.error('Error deleting video:', err)
-      alert('Failed to delete video: ' + (err.message || 'Unknown error'))
+      showNotification('Failed to delete video: ' + (err.message || 'Unknown error'), 'error')
     }
   }
 

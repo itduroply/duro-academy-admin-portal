@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import './AssignPerformanceDashboard.css'
 
 function AssignPerformanceDashboard() {
   const mountedRef = useRef(true)
+  const { showNotification } = useNotification()
+  const ACCESS_TYPE_OPTIONS = ['DGO', 'ASM', 'Calculator']
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -23,6 +26,7 @@ function AssignPerformanceDashboard() {
   const [selectedUser, setSelectedUser] = useState('')
   const [selectedUsers, setSelectedUsers] = useState([])
   const [selectedDepartment, setSelectedDepartment] = useState('')
+  const [selectedAccessTypes, setSelectedAccessTypes] = useState([])
   const [userSearchTerm, setUserSearchTerm] = useState('')
   const [editingUserId, setEditingUserId] = useState(null)
 
@@ -73,7 +77,7 @@ function AssignPerformanceDashboard() {
   const fetchAssignments = async () => {
     const { data, error } = await supabase
       .from('user_performance_dashboard')
-      .select('id, user_id, assigned_at, users:user_id(id, full_name, email, employee_id)')
+      .select('id, user_id, assigned_at, access_type, users:user_id(id, full_name, email, employee_id)')
       .order('assigned_at', { ascending: false })
     if (error) throw error
     if (mountedRef.current) setAssignments(Array.isArray(data) ? data : [])
@@ -87,6 +91,7 @@ function AssignPerformanceDashboard() {
     setSelectedUser('')
     setSelectedUsers([])
     setSelectedDepartment('')
+    setSelectedAccessTypes([])
     setUserSearchTerm('')
   }
 
@@ -95,14 +100,21 @@ function AssignPerformanceDashboard() {
     setModalOpen(true)
   }
 
-  const openEditModal = (userId) => {
-    setEditingUserId(userId)
+  const openEditModal = (assignment) => {
+    setEditingUserId(assignment?.user_id || null)
     setAssignType('single')
-    setSelectedUser(userId)
+    setSelectedUser(assignment?.user_id || '')
     setSelectedUsers([])
     setSelectedDepartment('')
+    setSelectedAccessTypes(Array.isArray(assignment?.access_type) ? assignment.access_type : [])
     setUserSearchTerm('')
     setModalOpen(true)
+  }
+
+  const toggleAccessType = (value) => {
+    setSelectedAccessTypes((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
+    )
   }
 
   const handleUserToggle = (uid) =>
@@ -112,9 +124,10 @@ function AssignPerformanceDashboard() {
   const handleAssign = async (e) => {
     e.preventDefault()
 
-    if (assignType === 'single' && !selectedUser) return alert('Please select a user')
-    if (assignType === 'multiple' && selectedUsers.length === 0) return alert('Please select at least one user')
-    if (assignType === 'department' && !selectedDepartment) return alert('Please select a department')
+    if (assignType === 'single' && !selectedUser) return showNotification('Please select a user', 'warning')
+    if (assignType === 'multiple' && selectedUsers.length === 0) return showNotification('Please select at least one user', 'warning')
+    if (assignType === 'department' && !selectedDepartment) return showNotification('Please select a department', 'warning')
+    if (selectedAccessTypes.length === 0) return showNotification('Please select at least one access type', 'warning')
 
     try {
       setSaving(true)
@@ -132,7 +145,7 @@ function AssignPerformanceDashboard() {
           .eq('department_id', selectedDepartment)
         if (dErr) throw dErr
         if (!deptUsers?.length) {
-          alert('No users found in the selected department')
+          showNotification('No users found in the selected department', 'warning')
           return
         }
         targetUserIds = deptUsers.map(u => u.id)
@@ -140,25 +153,26 @@ function AssignPerformanceDashboard() {
 
       if (editingUserId) {
         // Edit mode: just ensure the record exists (upsert is safe; no extra fields)
-        const rows = targetUserIds.map(uid => ({ user_id: uid }))
+        const rows = targetUserIds.map(uid => ({ user_id: uid, access_type: selectedAccessTypes }))
         const { error } = await supabase
           .from('user_performance_dashboard')
-          .upsert(rows, { onConflict: 'user_id', ignoreDuplicates: true })
+          .upsert(rows, { onConflict: 'user_id' })
         if (error) throw error
-        alert('Performance Dashboard access updated!')
+        showNotification('DURO Lakshya Dashboard access updated!', 'success')
       } else {
         const rows = targetUserIds.map(uid => ({
           user_id: uid,
+          access_type: selectedAccessTypes,
           assigned_at: new Date().toISOString(),
         }))
         const { error } = await supabase
           .from('user_performance_dashboard')
-          .upsert(rows, { onConflict: 'user_id', ignoreDuplicates: true })
+          .upsert(rows, { onConflict: 'user_id' })
         if (error) throw error
         const msg = assignType === 'department'
-          ? `Performance Dashboard assigned to ${targetUserIds.length} user(s) in the department!`
-          : `Performance Dashboard assigned to ${targetUserIds.length} user(s)!`
-        alert(msg)
+          ? `DURO Lakshya Dashboard assigned to ${targetUserIds.length} user(s) in the department!`
+          : `DURO Lakshya Dashboard assigned to ${targetUserIds.length} user(s)!`
+        showNotification(msg, 'success')
       }
 
       resetModal()
@@ -166,7 +180,7 @@ function AssignPerformanceDashboard() {
       await fetchAssignments()
     } catch (err) {
       console.error(err)
-      alert('Error: ' + err.message)
+      showNotification('Error: ' + err.message, 'error')
     } finally {
       if (mountedRef.current) setSaving(false)
     }
@@ -174,7 +188,7 @@ function AssignPerformanceDashboard() {
 
   // ── delete ────────────────────────────────────────────────────────────────
   const handleDelete = async (userId) => {
-    if (!confirm('Remove Performance Dashboard access for this user?')) return
+    if (!confirm('Remove DURO Lakshya Dashboard access for this user?')) return
     try {
       setSaving(true)
       const { error } = await supabase
@@ -182,11 +196,11 @@ function AssignPerformanceDashboard() {
         .delete()
         .eq('user_id', userId)
       if (error) throw error
-      alert('Access removed.')
+          showNotification('Access removed.', 'success')
       setCheckedRows(prev => prev.filter(id => id !== userId))
       await fetchAssignments()
     } catch (err) {
-      alert('Error: ' + err.message)
+          showNotification('Error: ' + err.message, 'error')
     } finally {
       if (mountedRef.current) setSaving(false)
     }
@@ -194,7 +208,7 @@ function AssignPerformanceDashboard() {
 
   const handleBulkDelete = async () => {
     if (!checkedRows.length) return
-    if (!confirm(`Remove Performance Dashboard access for ${checkedRows.length} selected user(s)?`)) return
+    if (!confirm(`Remove DURO Lakshya Dashboard access for ${checkedRows.length} selected user(s)?`)) return
     try {
       setSaving(true)
       const { error } = await supabase
@@ -202,11 +216,11 @@ function AssignPerformanceDashboard() {
         .delete()
         .in('user_id', checkedRows)
       if (error) throw error
-      alert(`Access removed for ${checkedRows.length} user(s).`)
+      showNotification(`Access removed for ${checkedRows.length} user(s).`, 'success')
       setCheckedRows([])
       await fetchAssignments()
     } catch (err) {
-      alert('Error: ' + err.message)
+      showNotification('Error: ' + err.message, 'error')
     } finally {
       if (mountedRef.current) setSaving(false)
     }
@@ -271,8 +285,8 @@ function AssignPerformanceDashboard() {
         {/* Header */}
         <section className="apd-header">
           <div>
-            <h2>Assign Performance Dashboard</h2>
-            <p>Control which users can access the Performance Dashboard</p>
+            <h2>Assign DURO Lakshya Dashboard</h2>
+            <p>Control which users can access the DURO Lakshya Dashboard</p>
           </div>
           <div className="apd-actions">
             <button className="btn btn-secondary" onClick={fetchAllData} disabled={loading || saving}>
@@ -398,6 +412,7 @@ function AssignPerformanceDashboard() {
                     <th>#</th>
                     <th>User</th>
                     <th>Employee ID</th>
+                    <th>Access Type</th>
                     <th>Assigned On</th>
                     <th>Actions</th>
                   </tr>
@@ -424,9 +439,18 @@ function AssignPerformanceDashboard() {
                           <div className="apd-user-email">{row.users?.email || '—'}</div>
                         </td>
                         <td>{row.users?.employee_id || '—'}</td>
+                                            <td>{Array.isArray(row.access_type) && row.access_type.length ? row.access_type.join(', ') : '—'}</td>
                         <td>{formatDate(row.assigned_at)}</td>
                         <td>
                           <div className="apd-row-actions">
+                                                <button
+                                                  className="apd-btn-icon apd-btn-edit"
+                                                  onClick={() => openEditModal(row)}
+                                                  title="Edit access"
+                                                  disabled={saving}
+                                                >
+                                                  <i className="fa-solid fa-pen"></i>
+                                                </button>
                             <button
                               className="apd-btn-icon apd-btn-delete"
                               onClick={() => handleDelete(row.user_id)}
@@ -453,7 +477,7 @@ function AssignPerformanceDashboard() {
           <div className="apd-modal" onClick={(e) => e.stopPropagation()}>
             <div className="apd-modal-header">
               <h3>
-                {editingUserId ? 'Edit Performance Dashboard Access' : 'Assign Performance Dashboard Access'}
+                {editingUserId ? 'Edit DURO Lakshya Dashboard Access' : 'Assign DURO Lakshya Dashboard Access'}
               </h3>
               <button onClick={resetModal}><i className="fa-solid fa-times"></i></button>
             </div>
@@ -480,6 +504,24 @@ function AssignPerformanceDashboard() {
                     </select>
                   </div>
                 )}
+
+                <div className="apd-form-group">
+                  <label>Access Type *</label>
+                  <div className="apd-checkbox-list apd-access-type-list">
+                    {ACCESS_TYPE_OPTIONS.map((option) => (
+                      <label key={option} className="apd-checkbox-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedAccessTypes.includes(option)}
+                          onChange={() => toggleAccessType(option)}
+                        />
+                        <div>
+                          <span className="apd-cb-name">{option}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
 
                 {/* Single User */}
                 {assignType === 'single' && (

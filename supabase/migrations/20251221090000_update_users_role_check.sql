@@ -6,4 +6,4 @@ ALTER TABLE public.users
 
 ALTER TABLE public.users
   ADD CONSTRAINT users_role_check
-  CHECK (role IN ('user', 'admin', 'trainer', 'test'));
+  CHECK (role IN ('user', 'admin', 'super_admin', 'trainer', 'test'));

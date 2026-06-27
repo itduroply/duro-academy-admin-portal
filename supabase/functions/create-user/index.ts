@@ -20,6 +20,8 @@ interface CreateUserRequest {
   phone?: string
   date_of_birth?: string
   date_of_joining?: string
+  leaving_date?: string
+  status?: string
   region_id?: number
   branch_id?: number
   sub_branch_id?: number
@@ -57,10 +59,11 @@ serve(async (req) => {
     const body: CreateUserRequest = await req.json()
     console.log('Received request to create user:', { email: body.email, employee_id: body.employee_id })
     
-    const { email, password, full_name, employee_id, reporting_manager, role, phone, date_of_birth, date_of_joining, region_id, branch_id, sub_branch_id, department_id, sub_department_id, grade_id, designation_id } = body
+    const { email, password, full_name, employee_id, reporting_manager, role, phone, date_of_birth, date_of_joining, leaving_date, status, region_id, branch_id, sub_branch_id, department_id, sub_department_id, grade_id, designation_id } = body
 
     // Normalize phone to string; we'll store it in metadata/DB only
     const normalizedPhone = phone != null ? String(phone) : undefined
+    const normalizedStatus = String(status || '').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active'
 
     // Validate required fields
     if (!email || !full_name || !employee_id) {
@@ -149,6 +152,8 @@ serve(async (req) => {
         phone: normalizedPhone || null,
         date_of_birth: date_of_birth || null,
         date_of_joining: date_of_joining || null,
+        leaving_date: leaving_date || null,
+        status: normalizedStatus,
         region_id: region_id || null,
         branch_id: branch_id || null,
         sub_branch_id: sub_branch_id || null,

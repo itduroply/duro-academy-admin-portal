@@ -2,10 +2,12 @@
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import * as XLSX from 'xlsx'
+import { useNotification } from '../contexts/NotificationContext'
 import './VideoProgress.css'
 
 function VideoProgress() {
   const mountedRef = useRef(true)
+  const { showNotification } = useNotification()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -392,7 +394,7 @@ function VideoProgress() {
           allRows.push(...buildUserVideoRows(user))
         })
         if (allRows.length === 0) {
-          alert('No data to export')
+          showNotification('No data to export', 'warning')
           setExporting(false)
           return
         }
@@ -408,7 +410,7 @@ function VideoProgress() {
         XLSX.writeFile(wb, `Video_Progress_Report_${new Date().toISOString().slice(0, 10)}.xlsx`)
       } catch (err) {
         console.error('Export error:', err)
-        alert('Export failed: ' + err.message)
+        showNotification('Export failed: ' + err.message, 'error')
       } finally {
         setExporting(false)
       }
@@ -423,7 +425,7 @@ function VideoProgress() {
       try {
         const rows = buildUserVideoRows(selectedUser)
         if (rows.length === 0) {
-          alert('No data to export')
+          showNotification('No data to export', 'warning')
           setExporting(false)
           return
         }
@@ -439,7 +441,7 @@ function VideoProgress() {
         XLSX.writeFile(wb, `Video_Progress_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`)
       } catch (err) {
         console.error('Export error:', err)
-        alert('Export failed: ' + err.message)
+        showNotification('Export failed: ' + err.message, 'error')
       } finally {
         setExporting(false)
       }

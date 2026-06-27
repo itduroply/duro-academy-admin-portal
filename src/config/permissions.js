@@ -26,6 +26,7 @@ export const SCREENS = {
   ASSIGN_MODULES: 'assign-modules',
   ASSIGN_PERFORMANCE_DASHBOARD: 'assign-performance-dashboard',
   PERFORMANCE_DASHBOARD: 'performance-dashboard',
+  PERFORMANCE_BRANCH_ACCESS: 'performance-branch-access',
   CATEGORY_ACCESS: 'category-access',
   ANALYTICS: 'analytics',
   SETTINGS: 'settings',
@@ -40,6 +41,7 @@ export const SCREENS = {
   LEAD_TASK: 'lead-task',
   MASTER_ENROLLMENT: 'master-enrollment',
   HOLIDAY: 'holiday',
+  ONROLL_OFFROLE: 'onroll-offrole',
 }
 
 // Allowed roles that can access the admin panel
@@ -68,6 +70,7 @@ export const ROLE_PERMISSIONS = {
     SCREENS.ASSIGN_MODULES,
     SCREENS.ASSIGN_PERFORMANCE_DASHBOARD,
     SCREENS.PERFORMANCE_DASHBOARD,
+    SCREENS.PERFORMANCE_BRANCH_ACCESS,
     SCREENS.CATEGORY_ACCESS,
     SCREENS.EXCEL_UPLOAD,
     SCREENS.SALES_DATA_DOWNLOAD,
@@ -79,6 +82,7 @@ export const ROLE_PERMISSIONS = {
     SCREENS.LEAD_TASK,
     SCREENS.MASTER_ENROLLMENT,
     SCREENS.HOLIDAY,
+    SCREENS.ONROLL_OFFROLE,
   ],
 }
 
@@ -100,7 +104,8 @@ export const NAV_ITEMS = [
   { path: '/active-logins', label: 'Active Logins', icon: 'fa-solid fa-right-to-bracket', screen: SCREENS.ACTIVE_LOGINS },
   { path: '/assign-modules', label: 'Assign Modules', icon: 'fa-solid fa-tasks', screen: SCREENS.ASSIGN_MODULES },
   { path: '/assign-performance-dashboard', label: 'Assign Performance', icon: 'fa-solid fa-chart-bar', screen: SCREENS.ASSIGN_PERFORMANCE_DASHBOARD },
-  { path: '/performance-dashboard', label: 'Performance Dashboard', icon: 'fa-solid fa-chart-bar', screen: SCREENS.PERFORMANCE_DASHBOARD },
+  { path: '/performance-dashboard', label: 'DURO Lakshya Dashboard', icon: 'fa-solid fa-chart-bar', screen: SCREENS.PERFORMANCE_DASHBOARD },
+  { path: '/performance-branch-access', label: 'Branch Access', icon: 'fa-solid fa-sitemap', screen: SCREENS.PERFORMANCE_BRANCH_ACCESS },
   { path: '/category-access', label: 'Category Access', icon: 'fa-solid fa-layer-group', screen: SCREENS.CATEGORY_ACCESS },
   { path: '/admin-permissions', label: 'Admin Permissions', icon: 'fa-solid fa-shield-halved', screen: SCREENS.ADMIN_PERMISSIONS },
   { path: '/analytics', label: 'Analytics', icon: 'fa-solid fa-chart-line', screen: SCREENS.ANALYTICS },
@@ -108,4 +113,30 @@ export const NAV_ITEMS = [
   { path: '/sales-data-download', label: 'Sales Data Download', icon: 'fa-solid fa-file-arrow-down', screen: SCREENS.SALES_DATA_DOWNLOAD },
   { path: '/performance-master', label: 'Performance Master', icon: 'fa-solid fa-database', screen: SCREENS.PERFORMANCE_MASTER },
   { path: '/holiday', label: 'Holiday Calendar', icon: 'fa-solid fa-calendar-days', screen: SCREENS.HOLIDAY },
+  { path: '/onroll-offrole', label: 'Onroll-Offrole', icon: 'fa-solid fa-id-card-clip', screen: SCREENS.ONROLL_OFFROLE },
 ]
+
+export const NAV_ITEM_BY_SCREEN = NAV_ITEMS.reduce((accumulator, item) => {
+  accumulator[item.screen] = item.path
+  return accumulator
+}, {})
+
+export const getRouteForScreen = (screenKey) => {
+  return NAV_ITEM_BY_SCREEN[screenKey] || '/dashboard'
+}
+
+export const getDefaultRouteForScreens = (screenKeys, role = 'admin') => {
+  if (role === 'super_admin') return '/dashboard'
+
+  const screens = Array.isArray(screenKeys) ? screenKeys.filter(Boolean) : []
+  if (screens.length === 1) {
+    return getRouteForScreen(screens[0])
+  }
+
+  if (screens.includes(SCREENS.DASHBOARD)) {
+    return '/dashboard'
+  }
+
+  const firstAccessible = NAV_ITEMS.find(item => screens.includes(item.screen))
+  return firstAccessible ? firstAccessible.path : '/dashboard'
+}

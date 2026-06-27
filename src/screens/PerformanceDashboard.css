@@ -53,8 +53,9 @@
   border-radius: 1rem;
   padding: 1rem;
   display: grid;
-  grid-template-columns: 1fr 2fr 3fr;
+  grid-template-columns: 1fr 1.8fr 1fr auto;
   gap: 1rem;
+  align-items: end;
 }
 
 .apdr-filter-group label {
@@ -72,6 +73,41 @@
   border-radius: 0.5rem;
   padding: 0.55rem 0.65rem;
   font-size: 0.875rem;
+}
+
+.apdr-filter-group select:disabled {
+  background-color: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.apdr-quarter-select {
+  width: 140px !important;
+  min-width: 140px;
+}
+
+.apdr-month-select {
+  width: 160px !important;
+  min-width: 160px;
+}
+
+.apdr-inline-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.apdr-filter-action {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.apdr-filter-action .apdr-btn {
+  width: fit-content;
+  white-space: nowrap;
 }
 
 .apdr-chip-wrap {
@@ -401,6 +437,21 @@
 
   .apdr-filter-row {
     grid-template-columns: 1fr;
+  }
+
+  .apdr-inline-filters {
+    width: 100%;
+  }
+
+  .apdr-quarter-select,
+  .apdr-month-select {
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .apdr-filter-action .apdr-btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .apdr-grid3 {

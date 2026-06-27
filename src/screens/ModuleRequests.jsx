@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import './ModuleRequests.css'
 
 function ModuleRequests() {
   const mountedRef = useRef(true)
+  const { showNotification } = useNotification()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('pending')
   const [requests, setRequests] = useState([])
@@ -122,7 +124,7 @@ function ModuleRequests() {
       const { data: { user } } = await supabase.auth.getUser()
 
       if (!user) {
-        alert('You must be logged in to approve requests')
+        showNotification('You must be logged in to approve requests', 'warning')
         return
       }
 
@@ -150,12 +152,12 @@ function ModuleRequests() {
 
       if (accessError) throw accessError
 
-      alert('Request approved successfully!')
+      showNotification('Request approved successfully!', 'success')
       await fetchRequests()
       setAdminNotes({ ...adminNotes, [requestId]: '' })
     } catch (error) {
       console.error('Error approving request:', error)
-      alert('Failed to approve request: ' + (error.message || 'Unknown error'))
+      showNotification('Failed to approve request: ' + (error.message || 'Unknown error'), 'error')
     } finally {
       setProcessingRequest(null)
     }
@@ -163,7 +165,7 @@ function ModuleRequests() {
 
   const handleRejectRequest = async (requestId) => {
     if (!adminNotes[requestId]?.trim()) {
-      alert('Please provide a reason for rejection in the admin notes')
+      showNotification('Please provide a reason for rejection in the admin notes', 'warning')
       return
     }
 
@@ -172,7 +174,7 @@ function ModuleRequests() {
       const { data: { user } } = await supabase.auth.getUser()
 
       if (!user) {
-        alert('You must be logged in to reject requests')
+        showNotification('You must be logged in to reject requests', 'warning')
         return
       }
 
@@ -188,12 +190,12 @@ function ModuleRequests() {
 
       if (error) throw error
 
-      alert('Request rejected')
+      showNotification('Request rejected', 'success')
       await fetchRequests()
       setAdminNotes({ ...adminNotes, [requestId]: '' })
     } catch (error) {
       console.error('Error rejecting request:', error)
-      alert('Failed to reject request: ' + (error.message || 'Unknown error'))
+      showNotification('Failed to reject request: ' + (error.message || 'Unknown error'), 'error')
     } finally {
       setProcessingRequest(null)
     }

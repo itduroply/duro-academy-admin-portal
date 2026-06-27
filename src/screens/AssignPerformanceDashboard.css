@@ -183,6 +183,7 @@
   padding: .375rem; border-radius: .375rem;
   color: #9CA3AF; transition: all .2s;
 }
+.apd-btn-edit:hover { color: #2563EB; background: #DBEAFE; }
 .apd-btn-delete:hover { color: #DC2626; background: #FEE2E2; }
 
 /* ── Empty ── */

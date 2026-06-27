@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { useNotification } from '../contexts/NotificationContext'
 import './ExcelUpload.css'
 
 // ── Sheet config ────────────────────────────────────────────
@@ -615,6 +616,84 @@ function normalizeTierKey(v) {
   return String(v || '').trim().toLowerCase()
 }
 
+function chunkArray(arr, size) {
+  const out = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
+
+function normKey(v) {
+  return String(v || '').trim().toLowerCase()
+}
+
+function pickParentMasterMappedIsr(parentClaimNo, rows = []) {
+  const parent = String(parentClaimNo || '').trim()
+  if (!parent || rows.length === 0) return null
+
+  const preferredClaimNo = `${parent}-1`.toLowerCase()
+  const preferredRow = rows.find((r) => normKey(r.claim_no) === preferredClaimNo && str(r.mapped_isr_code))
+  if (preferredRow) return str(preferredRow.mapped_isr_code)
+
+  const anyMappedRow = rows.find((r) => str(r.mapped_isr_code))
+  return anyMappedRow ? str(anyMappedRow.mapped_isr_code) : null
+}
+
+async function applyInfluencerClaimMappedIsrRules(uploadRows) {
+  const parentClaimNos = [...new Set(uploadRows.map((r) => str(r.parent_claim_no)).filter(Boolean))]
+  if (parentClaimNos.length === 0) return uploadRows
+
+  const existingRows = []
+  const parentChunks = chunkArray(parentClaimNos, 500)
+  for (const parentChunk of parentChunks) {
+    const { data, error } = await supabase
+      .from('influencer_claim_details')
+      .select('parent_claim_no, claim_no, mapped_isr_code')
+      .in('parent_claim_no', parentChunk)
+
+    if (error) throw error
+    if (Array.isArray(data) && data.length) existingRows.push(...data)
+  }
+
+  if (existingRows.length === 0) {
+    // Parent claim not present in DB at all, so use uploaded mapped_isr_code.
+    return uploadRows
+  }
+
+  const byParent = new Map()
+  const byClaim = new Map()
+
+  for (const row of existingRows) {
+    const parentKey = normKey(row.parent_claim_no)
+    const claimKey = normKey(row.claim_no)
+    if (!byParent.has(parentKey)) byParent.set(parentKey, [])
+    byParent.get(parentKey).push(row)
+    if (claimKey && !byClaim.has(claimKey)) byClaim.set(claimKey, row)
+  }
+
+  const parentMasterMapped = new Map()
+  for (const [parentKey, rows] of byParent.entries()) {
+    parentMasterMapped.set(parentKey, pickParentMasterMappedIsr(rows[0]?.parent_claim_no, rows))
+  }
+
+  return uploadRows.map((row) => {
+    const parentKey = normKey(row.parent_claim_no)
+    const claimKey = normKey(row.claim_no)
+
+    const parentMapped = parentMasterMapped.get(parentKey)
+    if (parentMapped) {
+      return { ...row, mapped_isr_code: parentMapped }
+    }
+
+    const existingClaim = byClaim.get(claimKey)
+    const existingClaimMapped = str(existingClaim?.mapped_isr_code)
+    if (existingClaimMapped) {
+      return { ...row, mapped_isr_code: existingClaimMapped }
+    }
+
+    return row
+  })
+}
+
 function parseMonthlyAttendanceRows(ws) {
   const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
   if (!Array.isArray(matrix) || matrix.length === 0) return []
@@ -659,6 +738,7 @@ const BATCH_SIZE = 500
 function ExcelUpload() {
   const { user } = useAuth()
   const fileInputRef = useRef(null)
+  const { showNotification } = useNotification()
 
   const [selectedType, setSelectedType] = useState('')
   const [file, setFile] = useState(null)
@@ -692,8 +772,8 @@ function ExcelUpload() {
   }
 
   const handleUpload = async () => {
-    if (!selectedType) return alert('Please select a sheet type.')
-    if (!file) return alert('Please choose an Excel file.')
+    if (!selectedType) return showNotification('Please select a sheet type.', 'warning')
+    if (!file) return showNotification('Please choose an Excel file.', 'warning')
 
     const config = SHEET_CONFIGS[selectedType]
     setUploading(true)
@@ -770,8 +850,12 @@ function ExcelUpload() {
         return
       }
 
-      // 4. Upsert/insert in batches
-      const rowsToWrite = mappedRows
+      // 4. Apply sheet-specific rules before DB write.
+      const rowsToWrite = selectedType === 'influencer_claim'
+        ? await applyInfluencerClaimMappedIsrRules(mappedRows)
+        : mappedRows
+
+      // 5. Upsert/insert in batches
       const batches = Math.ceil(rowsToWrite.length / BATCH_SIZE)
       for (let i = 0; i < batches; i++) {
         const batch = rowsToWrite.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
@@ -797,7 +881,7 @@ function ExcelUpload() {
         setProgress(Math.round(((i + 1) / batches) * 100))
       }
 
-      // 5. Update session with final counts
+      // 6. Update session with final counts
       await supabase
         .from('excel_upload_sessions')
         .update({

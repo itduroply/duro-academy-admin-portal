@@ -6,6 +6,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import AdminLayout from './components/AdminLayout'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { AuthProvider } from './contexts/AuthContext'
+import { NotificationProvider } from './contexts/NotificationContext'
 import { SCREENS } from './config/permissions'
 import './App.css'
 
@@ -28,6 +29,7 @@ const Videos = lazy(() => import('./screens/Videos'))
 const CategoryAccess = lazy(() => import('./screens/CategoryAccess'))
 const AssignPerformanceDashboard = lazy(() => import('./screens/AssignPerformanceDashboard'))
 const PerformanceDashboard = lazy(() => import('./screens/PerformanceDashboard'))
+const PerformanceBranchAccess = lazy(() => import('./screens/PerformanceBranchAccess'))
 const ExcelUpload = lazy(() => import('./screens/ExcelUpload'))
 const SalesDataDownload = lazy(() => import('./screens/SalesDataDownload'))
 const PerformanceMasterUpload = lazy(() => import('./screens/PerformanceMasterUpload'))
@@ -38,6 +40,7 @@ const LeadDetailsScreen = lazy(() => import('./screens/LeadDetailsScreen'))
 const LeadTaskScreen = lazy(() => import('./screens/LeadTaskScreen'))
 const MasterEnrollmentScreen = lazy(() => import('./screens/MasterEnrollmentScreen'))
 const HolidayScreen = lazy(() => import('./screens/HolidayScreen'))
+const OnrollOffrole = lazy(() => import('./screens/OnrollOffrole'))
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -71,16 +74,17 @@ function App() {
   const resolvedBase = baseUrl !== '/' && window.location.pathname.startsWith(baseUrl) ? baseUrl : '/'
 
   return (
-    <AuthProvider>
-      <Router basename={resolvedBase}>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
+    <NotificationProvider>
+      <AuthProvider>
+        <Router basename={resolvedBase}>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
 
-          {/* All admin routes share a single mounted layout */}
-          <Route element={<AdminLayout />}>
+            {/* All admin routes share a single mounted layout */}
+            <Route element={<AdminLayout />}>
             <Route path="/dashboard" element={<Screen screen={SCREENS.DASHBOARD}><Dashboard /></Screen>} />
             <Route path="/modules" element={<Screen screen={SCREENS.MODULES}><Modules /></Screen>} />
             <Route path="/videos" element={<Screen screen={SCREENS.VIDEOS}><Videos /></Screen>} />
@@ -98,6 +102,7 @@ function App() {
             <Route path="/assign-modules" element={<Screen screen={SCREENS.ASSIGN_MODULES}><AssignModules /></Screen>} />
             <Route path="/assign-performance-dashboard" element={<Screen screen={SCREENS.ASSIGN_PERFORMANCE_DASHBOARD}><AssignPerformanceDashboard /></Screen>} />
             <Route path="/performance-dashboard" element={<Screen screen={SCREENS.PERFORMANCE_DASHBOARD}><PerformanceDashboard /></Screen>} />
+            <Route path="/performance-branch-access" element={<Screen screen={SCREENS.PERFORMANCE_BRANCH_ACCESS}><PerformanceBranchAccess /></Screen>} />
             <Route path="/excel-upload" element={<Screen screen={SCREENS.EXCEL_UPLOAD}><ExcelUpload /></Screen>} />
             <Route path="/sales-data-download" element={<Screen screen={SCREENS.SALES_DATA_DOWNLOAD}><SalesDataDownload /></Screen>} />
             <Route path="/performance-master" element={<Screen screen={SCREENS.PERFORMANCE_MASTER}><PerformanceMasterUpload /></Screen>} />
@@ -108,6 +113,7 @@ function App() {
             <Route path="/lead-task" element={<Screen screen={SCREENS.LEAD_TASK}><LeadTaskScreen /></Screen>} />
             <Route path="/master-enrollment" element={<Screen screen={SCREENS.MASTER_ENROLLMENT}><MasterEnrollmentScreen /></Screen>} />
             <Route path="/holiday" element={<Screen screen={SCREENS.HOLIDAY}><HolidayScreen /></Screen>} />
+            <Route path="/onroll-offrole" element={<Screen screen={SCREENS.ONROLL_OFFROLE}><OnrollOffrole /></Screen>} />
             <Route path="/category-access" element={<Screen screen={SCREENS.CATEGORY_ACCESS}><CategoryAccess /></Screen>} />
             <Route path="/admin-permissions" element={<Screen screen={SCREENS.ADMIN_PERMISSIONS}><AdminPermissions /></Screen>} />
           </Route>
@@ -116,7 +122,8 @@ function App() {
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Router>
-    </AuthProvider>
+      </AuthProvider>
+    </NotificationProvider>
   )
 }
 

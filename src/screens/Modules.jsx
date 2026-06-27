@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
+import { useNotification } from '../contexts/NotificationContext'
 import './Modules.css'
 
 function Modules() {
   const mountedRef = useRef(true)
+  const { showNotification } = useNotification()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addModuleModalOpen, setAddModuleModalOpen] = useState(false)
@@ -144,13 +146,13 @@ function Modules() {
     try {
       // Validate required fields
       if (!formData.title.trim()) {
-        alert('Please enter a module title')
+        showNotification('Please enter a module title', 'warning')
         return
       }
 
       // Validate department access for department type
       if (formData.access_type === 'department' && formData.department_ids.length === 0) {
-        alert('Please select at least one department for department-based access')
+        showNotification('Please select at least one department for department-based access', 'warning')
         return
       }
 
@@ -193,7 +195,7 @@ function Modules() {
           if (deptAccessError) throw deptAccessError
         }
 
-        alert('Module updated successfully!')
+        showNotification('Module updated successfully!', 'success')
       } else {
         // Insert new module
         const { data: moduleData, error: moduleError } = await supabase
@@ -226,7 +228,7 @@ function Modules() {
           if (deptAccessError) throw deptAccessError
         }
 
-        alert('Module added successfully!')
+        showNotification('Module added successfully!', 'success')
       }
 
       // Close modal and refresh list
@@ -248,7 +250,7 @@ function Modules() {
     } catch (error) {
       console.error('Error saving module:', error)
       setError(error.message || 'Failed to save module. Please try again.')
-      alert('Failed to save module: ' + (error.message || 'Unknown error'))
+      showNotification('Failed to save module: ' + (error.message || 'Unknown error'), 'error')
     }
   }
 
@@ -281,7 +283,7 @@ function Modules() {
       setAddModuleModalOpen(true)
     } catch (error) {
       console.error('Error loading module for edit:', error)
-      alert('Failed to load module details: ' + (error.message || 'Unknown error'))
+      showNotification('Failed to load module details: ' + (error.message || 'Unknown error'), 'error')
     }
   }
 
@@ -301,10 +303,10 @@ function Modules() {
       if (error) throw error
 
       await fetchModules()
-      alert('Module deleted successfully!')
+      showNotification('Module deleted successfully!', 'success')
     } catch (error) {
       console.error('Error deleting module:', error)
-      alert('Failed to delete module: ' + (error.message || 'Unknown error'))
+      showNotification('Failed to delete module: ' + (error.message || 'Unknown error'), 'error')
     }
   }
 

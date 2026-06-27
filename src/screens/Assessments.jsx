@@ -2,11 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, TTL } from '../utils/cacheDB';
+import { useNotification } from '../contexts/NotificationContext';
 import './Assessments.css';
 
 function Assessments() {
   const mountedRef = useRef(true);
   const navigate = useNavigate();
+  const { showNotification } = useNotification();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filterModule, setFilterModule] = useState('All Modules');
   const [filterStatus, setFilterStatus] = useState('All Status');
@@ -166,10 +168,10 @@ function Assessments() {
       if (quizError) throw quizError;
 
       await fetchQuizzes();
-      alert('Assessment deleted successfully!');
+      showNotification('Assessment deleted successfully!', 'success');
     } catch (error) {
       console.error('Error deleting quiz:', error);
-      alert('Failed to delete assessment: ' + (error.message || 'Unknown error'));
+      showNotification('Failed to delete assessment: ' + (error.message || 'Unknown error'), 'error');
     }
   };
 

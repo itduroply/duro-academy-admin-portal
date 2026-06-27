@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB';
+import { useNotification } from '../contexts/NotificationContext';
 import './Banners.css';
 
 const Banners = () => {
@@ -8,6 +9,7 @@ const Banners = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [banners, setBanners] = useState([]);
+  const { showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
   const [editingBanner, setEditingBanner] = useState(null);
   const [editingBannerId, setEditingBannerId] = useState(null);
@@ -94,7 +96,7 @@ const Banners = () => {
       setBanners(bannersWithDetails);
     } catch (error) {
       console.error('Error fetching banners:', error);
-      alert('Failed to fetch banners');
+      showNotification('Failed to fetch banners', 'error');
     } finally {
       setLoading(false);
     }
@@ -248,17 +250,17 @@ const Banners = () => {
     try {
       // Validation - title is now optional
       if (!formData.redirectType) {
-        alert('Please select a redirect type');
+        showNotification('Please select a redirect type', 'warning');
         return;
       }
 
       if (!formData.redirectId) {
-        alert('Please select a redirect target');
+        showNotification('Please select a redirect target', 'warning');
         return;
       }
 
       if (!editingBanner && !formData.image) {
-        alert('Please select an image');
+        showNotification('Please select an image', 'warning');
         return;
       }
 
@@ -288,7 +290,7 @@ const Banners = () => {
       if (editingBanner) {
         if (!editingBannerId) {
           console.error('Missing banner id for update', { editingBanner, editingBannerId });
-          alert('Cannot update this banner because its ID is missing. Please reload the page and try again.');
+          showNotification('Cannot update this banner because its ID is missing. Please reload the page and try again.', 'warning');
           return;
         }
         // Update existing banner
@@ -303,7 +305,7 @@ const Banners = () => {
           throw new Error(`Update failed: ${error.message}`);
         }
         console.log('Update response:', data);
-        alert('Banner updated successfully!');
+        showNotification('Banner updated successfully!', 'success');
       } else {
         // Create new banner
         console.log('Creating new banner...');
@@ -317,14 +319,14 @@ const Banners = () => {
           throw new Error(`Insert failed: ${error.message}`);
         }
         console.log('Insert response:', data);
-        alert('Banner created successfully!');
+        showNotification('Banner created successfully!', 'success');
       }
 
       closeModal();
       fetchBanners();
     } catch (error) {
       console.error('Error saving banner:', error);
-      alert('Failed to save banner: ' + error.message);
+      showNotification('Failed to save banner: ' + error.message, 'error');
     }
   };
 
@@ -340,7 +342,7 @@ const Banners = () => {
       fetchBanners();
     } catch (error) {
       console.error('Error toggling banner status:', error);
-      alert('Failed to update banner status');
+      showNotification('Failed to update banner status', 'error');
     }
   };
 
@@ -355,11 +357,11 @@ const Banners = () => {
 
       if (error) throw error;
 
-      alert('Banner deleted successfully!');
+      showNotification('Banner deleted successfully!', 'success');
       fetchBanners();
     } catch (error) {
       console.error('Error deleting banner:', error);
-      alert('Failed to delete banner');
+      showNotification('Failed to delete banner', 'error');
     }
   };
 

@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, TTL } from '../utils/cacheDB';
+import { useNotification } from '../contexts/NotificationContext';
 import './QuizBuilder.css';
 
 const QuizBuilder = () => {
   const mountedRef = useRef(true);
+  const { showNotification } = useNotification();
   const { id } = useParams();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -206,7 +208,7 @@ const QuizBuilder = () => {
 
   const deleteQuestion = (questionId) => {
     if (questions.length === 1) {
-      alert('You must have at least one question');
+      showNotification('You must have at least one question', 'warning');
       return;
     }
     if (window.confirm('Are you sure you want to delete this question?')) {
@@ -216,25 +218,25 @@ const QuizBuilder = () => {
 
   const handlePreview = () => {
     console.log('Preview quiz:', { quizConfig, questions });
-    alert('Preview functionality will be implemented soon!');
+    showNotification('Preview functionality will be implemented soon!', 'info');
   };
 
   const handleSave = async () => {
     try {
       // Validate required fields
       if (!quizConfig.title.trim()) {
-        alert('Please enter a quiz title');
+        showNotification('Please enter a quiz title', 'warning');
         return;
       }
       if (!quizConfig.video_id) {
-        alert('Please select a video');
+        showNotification('Please select a video', 'warning');
         return;
       }
 
       // Validate questions
       const hasEmptyQuestions = questions.some(q => !q.question.trim());
       if (hasEmptyQuestions) {
-        alert('Please fill in all question texts');
+        showNotification('Please fill in all question texts', 'warning');
         return;
       }
 
@@ -242,7 +244,7 @@ const QuizBuilder = () => {
         q.answers.some(a => !a.text.trim())
       );
       if (hasEmptyAnswers) {
-        alert('Please fill in all answer options');
+        showNotification('Please fill in all answer options', 'warning');
         return;
       }
 
@@ -250,7 +252,7 @@ const QuizBuilder = () => {
         !q.answers.some(a => a.isCorrect)
       );
       if (hasNoCorrectAnswer) {
-        alert('Please select a correct answer for each question');
+        showNotification('Please select a correct answer for each question', 'warning');
         return;
       }
 
@@ -317,12 +319,12 @@ const QuizBuilder = () => {
 
       if (questionsError) throw questionsError;
 
-      alert(id ? 'Quiz updated successfully!' : 'Quiz created successfully!');
+      showNotification(id ? 'Quiz updated successfully!' : 'Quiz created successfully!', 'success');
       navigate('/assessments');
     } catch (error) {
       console.error('Error saving quiz:', error);
       setError(error.message || 'Failed to save quiz');
-      alert('Failed to save quiz: ' + (error.message || 'Unknown error'));
+      showNotification('Failed to save quiz: ' + (error.message || 'Unknown error'), 'error');
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
+import { AuthContext } from '../contexts/AuthContext'
 import './PerformanceDashboard.css'
 
 const QUARTER_MONTHS = {
@@ -34,6 +36,14 @@ function getQuarterFactor(month) {
 function getCurrentFYStart() {
   const now = new Date()
   return now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1
+}
+
+function getCurrentQuarterKey() {
+  const month = new Date().getMonth() + 1
+  if (month >= 4 && month <= 6) return 'Q1'
+  if (month >= 7 && month <= 9) return 'Q2'
+  if (month >= 10 && month <= 12) return 'Q3'
+  return 'Q4'
 }
 
 async function fetchPaged(getQuery) {
@@ -116,13 +126,55 @@ function normalizeStatus(v) {
   return String(v || '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+function getMonthYearFromValue(value) {
+  if (!value) return null
+  const text = String(value).trim()
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoMatch) {
+    const year = Number(isoMatch[1])
+    const month = Number(isoMatch[2])
+    if (!Number.isNaN(year) && !Number.isNaN(month)) return { month, year }
+  }
+  const d = new Date(text)
+  if (Number.isNaN(d.getTime())) return null
+  return { month: d.getMonth() + 1, year: d.getFullYear() }
+}
+
+function normalizeAccount(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const compact = raw.replace(/\s+/g, '')
+  if (/^\d+$/.test(compact)) {
+    const noLeadingZeros = compact.replace(/^0+/, '')
+    return noLeadingZeros || '0'
+  }
+  return compact.toUpperCase()
+}
+
+function normalizeTierLabel(tierValue) {
+  const raw = String(tierValue || '').trim()
+  const normalized = raw.toLowerCase()
+  if (normalized === 'base' || normalized === 'base tier') return 'Base Tier'
+  return raw
+}
+
+function buildSelectionLabel(selectedQuarters, selectedMonths) {
+  const quarterLabel = selectedQuarters.includes('All') ? 'AllQuarters' : selectedQuarters.join('-')
+  const monthLabel = selectedMonths.includes('All') ? 'AllMonths' : selectedMonths.map(m => MONTH_LABELS[Number(m)] || m).join('-')
+  return `${quarterLabel}_${monthLabel}`
+}
+
 export default function PerformanceDashboard() {
   const mountedRef = useRef(true)
+  const auth = useContext(AuthContext)
+  const { user: authUser, role } = auth || {}
 
   const [users, setUsers] = useState([])
   const [usersLoading, setUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [adminUserBranchId, setAdminUserBranchId] = useState(null)
+  const [adminAllowedBranchIds, setAdminAllowedBranchIds] = useState([])
 
   const [selectedUserId, setSelectedUserId] = useState('')
 
@@ -133,13 +185,16 @@ export default function PerformanceDashboard() {
   ]
 
   const [selectedFYStart, setSelectedFYStart] = useState(currentFYStart)
-  const [selectedQuarters, setSelectedQuarters] = useState(['All'])
+  const [selectedQuarters, setSelectedQuarters] = useState([getCurrentQuarterKey()])
   const [selectedMonths, setSelectedMonths] = useState(['All'])
+  const [selectedBranch, setSelectedBranch] = useState(role === 'admin' ? '' : 'All Branches')
 
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState(null)
   const [detailData, setDetailData] = useState(null)
   const [fromCache, setFromCache] = useState(false)
+  const [allUsersExporting, setAllUsersExporting] = useState(false)
+  const [allUsersExportProgress, setAllUsersExportProgress] = useState({ done: 0, total: 0 })
 
   const selectedUser = useMemo(
     () => users.find(u => u.id === selectedUserId) || null,
@@ -159,37 +214,86 @@ export default function PerformanceDashboard() {
     }))
   }, [selectedFYStart, availableMonths, selectedMonths])
 
+  const branchOptions = useMemo(() => {
+    const values = [...new Set(users.map(u => String(u.branch_name || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b))
+    return ['All Branches', ...values]
+  }, [users])
+
+  const adminAllowedBranchSet = useMemo(() => new Set(adminAllowedBranchIds), [adminAllowedBranchIds])
+
   const filteredUsers = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
-    if (!q) return users
     return users.filter(u => {
       const name = (u.full_name || '').toLowerCase()
       const email = (u.email || '').toLowerCase()
       const emp = (u.employee_id || '').toLowerCase()
-      return name.includes(q) || email.includes(q) || emp.includes(q)
+      const branch = (u.branch_name || '').trim()
+      const matchesSearch = !q || name.includes(q) || email.includes(q) || emp.includes(q)
+      
+      // If user is admin, only show users from their assigned branches
+      if (role === 'admin') {
+        const branchAllowed = adminAllowedBranchSet.size > 0
+          ? adminAllowedBranchSet.has(u.branch_id)
+          : adminUserBranchId === u.branch_id
+        return matchesSearch && branchAllowed
+      }
+      
+      // If user is super_admin, apply the selectedBranch filter
+      const matchesBranch = selectedBranch === 'All Branches' || branch === selectedBranch
+      return matchesSearch && matchesBranch
     })
-  }, [users, searchTerm])
+  }, [users, searchTerm, selectedBranch, role, adminUserBranchId, adminAllowedBranchSet])
 
   const loadUsers = useCallback(async () => {
     try {
       setUsersLoading(true)
       setUsersError(null)
       const { data } = await cachedFetch(
-        'perf_dashboard_all_users',
+        'perf_dashboard_assigned_users',
         async () => {
-          const { data, error } = await supabase    
-            .from('users')
-            .select('id, full_name, email, employee_id, department_id')
-            .order('full_name', { ascending: true })
-          if (error) throw error
-          return data || []
+          const [assignedRes, branchesRes] = await Promise.all([
+            supabase
+              .from('user_performance_dashboard')
+              .select('users:user_id(id, full_name, email, employee_id, department_id, branch_id)')
+              .order('assigned_at', { ascending: false }),
+            supabase
+              .from('branches')
+              .select('id, branch_name'),
+          ])
+
+          if (assignedRes.error) throw assignedRes.error
+          if (branchesRes.error) throw branchesRes.error
+
+          const branchMap = new Map((branchesRes.data || []).map(b => [b.id, b.branch_name]))
+
+          const assignedUsers = (assignedRes.data || [])
+            .map(row => row.users ? {
+              ...row.users,
+              branch_id: row.users.branch_id,
+              branch_name: branchMap.get(row.users.branch_id) || '',
+            } : null)
+            .filter(Boolean)
+
+          const uniqueUsers = Array.from(
+            new Map(assignedUsers.map(user => [user.id, user])).values()
+          )
+
+          return uniqueUsers.sort((a, b) =>
+            String(a.full_name || '').localeCompare(String(b.full_name || ''))
+          )
         },
         TTL.SHORT
       )
       if (!mountedRef.current) return
       setUsers(Array.isArray(data) ? data : [])
-      if (!selectedUserId && data && data.length > 0) {
-        setSelectedUserId(data[0].id)
+      if (data && data.length > 0) {
+        const selectedStillExists = data.some(u => u.id === selectedUserId)
+        if (!selectedUserId || !selectedStillExists) {
+          setSelectedUserId(data[0].id)
+        }
+      } else {
+        setSelectedUserId('')
       }
     } catch (err) {
       if (mountedRef.current) setUsersError(err.message)
@@ -201,54 +305,215 @@ export default function PerformanceDashboard() {
   const computePerformance = useCallback(async (employeeId, pairs, fyStart) => {
     const sortedPairs = [...pairs].sort((a, b) => (a.year - b.year) || (a.month - b.month))
     const selectedPairKeySet = new Set(sortedPairs.map(p => monthYearKey(p.month, p.year)))
+    const employeeAliases = Array.from(new Set([String(employeeId), `D${String(employeeId).slice(-5)}`]))
+    const applyAliasFilter = (query, column) => {
+      if (employeeAliases.length === 1) return query.ilike(column, `${employeeAliases[0]}%`)
+      const orClause = employeeAliases.map(code => `${column}.ilike.${code}%`).join(',')
+      return query.or(orClause)
+    }
     const { startDate, endDateExclusive } = buildDateWindow(sortedPairs)
+    const twoFyStart = `${fyStart - 1}-04-01`
+    const twoFyEnd = `${fyStart + 1}-04-01`
+
+    // ── PHASE 1a: core financial data (4 queries in parallel) ────────────────
+    const [
+      claimDateClaims,
+      allStatusDateClaims,
+      goalRowData,
+      pointsMasterData,
+    ] = await Promise.all([
+      // 1. claim_date claims (for claimed sheets count)
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) =>
+            supabase
+              .from('influencer_claim_details')
+              .select('claimed_qty_sheets, claim_date')
+              .eq('mapped_isr_code', employeeId)
+              .gte('claim_date', startDate)
+              .lt('claim_date', endDateExclusive)
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+
+      // 2. status_date claims – full 2-FY window (covers sheet points + DMI history)
+      fetchPaged((from, to) =>
+        supabase
+          .from('influencer_claim_details')
+          .select('account_number, approved_qty, product_code, status_date')
+          .eq('mapped_isr_code', employeeId)
+          .gte('status_date', twoFyStart)
+          .lt('status_date', twoFyEnd)
+          .range(from, to)
+      ),
+
+      // 3. monthly sheet goal
+      supabase
+        .from('goals_master')
+        .select('monthly_sheet_goal')
+        .eq('employee_code', employeeId)
+        .maybeSingle()
+        .then(({ data }) => data),
+
+      // 4. sheet point master (small lookup, no filter needed)
+      supabase
+        .from('sheet_point_master')
+        .select('brand_name, points_per_sheet')
+        .then(({ data }) => data || []),
+    ])
+
+    // ── PHASE 1b: visit / activity data (6 queries in parallel) ──────────────
+    const [
+      enrollmentRowsSGT,
+      warRows,
+      attendanceRows,
+      existingDmiVisitRows,
+      newDmiVisitRows,
+      tierUpgradeRows,
+    ] = await Promise.all([
+      // 6. SGT enrollment rows (Silver/Gold/Titanium, active, within 2-FY for relevance)
+      fetchPaged((from, to) => {
+        let query = supabase
+          .from('m_enrollment_details')
+          .select('account_no, tier, is_active, created_at')
+          .in('tier', ['Silver', 'Gold', 'Titanium'])
+          .gte('created_at', twoFyStart)
+          .order('created_at', { ascending: false, nullsFirst: false })
+          .range(from, to)
+        return applyAliasFilter(query, 'mapped_isr')
+      }),
+
+      // 7. WAR tasks
+      // Use alias-aware ISR filtering; task_date can be text in some uploads,
+      // so month filtering is applied via pairMatch in-memory below.
+      fetchPaged((from, to) => {
+        let query = supabase
+          .from('telecalling_influencer_wartask')
+          .select('task_date, status_as_on_today, status_change_date')
+          .range(from, to)
+        return applyAliasFilter(query, 'mapped_isr_code')
+      }),
+
+      // 8. attendance
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) =>
+            supabase
+              .from('monthly_attendance_report')
+              .select('attendance_date, attendance_status')
+              .eq('employee_code', employeeId)
+              .gte('attendance_date', startDate)
+              .lt('attendance_date', endDateExclusive)
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+
+      // 9. existing DMI visits
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) =>
+            supabase
+              .from('influencer_visit_reports')
+              .select('influencer_code, visit_date')
+              .eq('emp_login', employeeId)
+              .gte('visit_date', startDate)
+              .lt('visit_date', endDateExclusive)
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+
+      // 10. new DMI visits (new enrollments)
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) =>
+            supabase
+              .from('influencer_enrollment_details')
+              .select('influencer_id, enrollment_date')
+              .eq('enrolled_by_dso_code', employeeId)
+              .gte('enrollment_date', startDate)
+              .lt('enrollment_date', endDateExclusive)
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+
+      // 11. tier upgrade events
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) =>
+            supabase
+              .from('tier_upgrade_performance_report')
+              .select('mapped_isr, change_type, previous_tier, tier_change_date')
+              .ilike('mapped_isr', `${employeeId}%`)
+              .gte('tier_change_date', startDate)
+              .lt('tier_change_date', endDateExclusive)
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+    ])
+
+    // ── PHASE 1c: lead / SGT visit data (3 queries in parallel) ─────────────
+    const [
+      leadDetailRows,
+      leadTaskRows,
+      sgtVisits,
+    ] = await Promise.all([
+      // 12. lead details (new site visits)
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) =>
+            supabase
+              .from('lead_details_reports')
+              .select('lead_created_by, created_date, lead_code')
+              .ilike('lead_created_by', `${employeeId}%`)
+              .gte('created_date', startDate)
+              .lt('created_date', endDateExclusive)
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+
+      // 13. lead tasks (existing site visits)
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) =>
+            supabase
+              .from('lead_task_reports')
+              .select('id, task_created_on, lead_id')
+              .eq('task_created_by_dso_code', employeeId)
+              .gte('task_created_on', startDate)
+              .lt('task_created_on', endDateExclusive)
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+
+      // 14. SGT visit reports
+      (startDate && endDateExclusive)
+        ? fetchPaged((from, to) => {
+            let query = supabase
+              .from('influencer_visit_reports')
+              .select('influencer_code, visit_date, influencer_tier')
+              .in('influencer_tier', ['Silver', 'Gold', 'Titanium'])
+              .gte('visit_date', startDate)
+              .lt('visit_date', endDateExclusive)
+              .range(from, to)
+            return applyAliasFilter(query, 'mapped_isr_code')
+          })
+        : Promise.resolve([]),
+    ])
+
+    // ── PHASE 1 IN-MEMORY PROCESSING ─────────────────────────────────────────
+    // twoFyStart / twoFyEnd already declared above
     const twoFyMonthKeySet = buildTwoFyMonthKeySet(fyStart)
-    const twoFyStartDate = `${fyStart - 1}-04-01`
-    const twoFyEndExclusive = `${fyStart + 1}-04-01`
+
+    const goalRow = goalRowData
+    const pointsMaster = pointsMasterData
 
     const pairMatch = (dateStr) => {
-      const d = parseDateSafe(dateStr)
-      if (!d) return false
-      return selectedPairKeySet.has(monthYearKey(d.getMonth() + 1, d.getFullYear()))
+      const parsed = getMonthYearFromValue(dateStr)
+      if (!parsed) return false
+      return selectedPairKeySet.has(monthYearKey(parsed.month, parsed.year))
     }
 
-    // Sheet points
-    const claimDateClaims = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('influencer_claim_details')
-            .select('claimed_qty_sheets, claim_date')
-            .eq('mapped_isr_code', employeeId)
-            .gte('claim_date', startDate)
-            .lt('claim_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
-    const statusDateClaims = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('influencer_claim_details')
-            .select('account_number, approved_qty, product_code, status_date')
-            .eq('mapped_isr_code', employeeId)
-            .gte('status_date', startDate)
-            .lt('status_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
+    // Derive both claim views from the single broad fetch
     const filteredClaimDateClaims = claimDateClaims.filter(c => pairMatch(c.claim_date))
-    const filteredStatusDateClaims = statusDateClaims.filter(c => pairMatch(c.status_date))
+    const filteredStatusDateClaims = allStatusDateClaims.filter(c => pairMatch(c.status_date))
+    // allStatusDateClaims already covers the full 2-FY window → used as dmiHistoryClaims below
 
-    const { data: goalRow } = await supabase
-      .from('goals_master')
-      .select('monthly_sheet_goal')
-      .eq('employee_code', employeeId)
-      .maybeSingle()
-
+    // Sheet points setup
     const monthlyGoal = toNumber(goalRow?.monthly_sheet_goal)
     const sheetGoal = sortedPairs.reduce((sum, pair) => sum + (monthlyGoal * getQuarterFactor(pair.month)), 0)
-
     const dmiGoal = sortedPairs.reduce((sum, pair) => {
       const spg = monthlyGoal * getQuarterFactor(pair.month)
       const a = spg / 55
@@ -265,52 +530,137 @@ export default function PerformanceDashboard() {
       if (!c.product_code) return
       productQtyMap[c.product_code] = (productQtyMap[c.product_code] || 0) + toNumber(c.approved_qty)
     })
-
     const uniqueProductCodes = Object.keys(productQtyMap)
-    const { data: brandMaster } = uniqueProductCodes.length
-      ? await supabase
-          .from('brand_category_master')
-          .select('brand_name, brand_category')
-          .in('brand_name', uniqueProductCodes)
-      : { data: [] }
+    const uniqueClaimAccounts = [...new Set(
+      filteredStatusDateClaims.map(c => normalizeAccount(c.account_number)).filter(Boolean)
+    )]
 
+    // SGT enrollment → activeSgtAccounts (needed later for visit filtering)
+    const isActiveTrue = (value) => {
+      const normalized = String(value ?? '').trim().toLowerCase()
+      return ['true', 't', '1', 'yes', 'y'].includes(normalized)
+    }
+    const uniqueTierByAccount = {}
+    enrollmentRowsSGT.forEach(r => {
+      const account = String(r.account_no || '').trim()
+      if (!account || !isActiveTrue(r.is_active) || uniqueTierByAccount[account]) return
+      uniqueTierByAccount[account] = r.tier
+    })
+    const activeSgtAccounts = new Set(Object.keys(uniqueTierByAccount))
+
+    // Lead tasks → ids needed for dedup meta fetch
+    const filteredLeadTasks = leadTaskRows.filter(v => pairMatch(v.task_created_on))
+    const leadIdsForDateCheck = [...new Set(
+      filteredLeadTasks.map(v => v.lead_id).filter(id => id != null && id !== '')
+    )]
+
+    // ── PHASE 2: conditionally dependent fetches, all in parallel ─────────────
+    const [brandMasterData, fallbackRows, leadCreatedMetaMap, mEnrollmentRows] = await Promise.all([
+      // A. brand category mapping (depends on uniqueProductCodes)
+      uniqueProductCodes.length
+        ? supabase
+            .from('brand_category_master')
+            .select('brand_name, brand_category')
+            .in('brand_name', uniqueProductCodes)
+            .then(({ data }) => data || [])
+        : Promise.resolve([]),
+
+      // B. fallback tier from influencer_enrollment_details (chunked, parallelised)
+      (async () => {
+        if (uniqueClaimAccounts.length === 0) return []
+        const CHUNK = 200
+        const chunks = []
+        for (let i = 0; i < uniqueClaimAccounts.length; i += CHUNK) {
+          chunks.push(uniqueClaimAccounts.slice(i, i + CHUNK))
+        }
+        const results = await Promise.all(chunks.map(chunk =>
+          fetchPaged((from, to) =>
+            supabase
+              .from('influencer_enrollment_details')
+              .select('influencer_id, influencer_tier, enrollment_date')
+              .in('influencer_id', chunk)
+              .range(from, to)
+          )
+        ))
+        return results.flat()
+      })(),
+
+      // C. lead created meta for existing-site-visit deduplication (depends on leadIdsForDateCheck)
+      (async () => {
+        const map = new Map()
+        if (leadIdsForDateCheck.length === 0) return map
+        const CHUNK = 200
+        const chunks = []
+        for (let i = 0; i < leadIdsForDateCheck.length; i += CHUNK) {
+          chunks.push(leadIdsForDateCheck.slice(i, i + CHUNK))
+        }
+        const results = await Promise.all(chunks.map(chunk =>
+          supabase
+            .from('lead_details_reports')
+            .select('lead_code, created_date')
+            .in('lead_code', chunk)
+            .then(({ data }) => data || [])
+        ))
+        results.flat().forEach(row => {
+          if (!row?.lead_code) return
+          if (!map.has(row.lead_code)) map.set(row.lead_code, { dates: new Set(), hasNullDate: false })
+          const meta = map.get(row.lead_code)
+          if (!row.created_date) { meta.hasNullDate = true; return }
+          meta.dates.add(String(row.created_date).slice(0, 10))
+        })
+        return map
+      })(),
+
+      // D. per-month m_enrollment_details (chunked, depends on uniqueClaimAccounts - now available)
+      (async () => {
+        if (uniqueClaimAccounts.length === 0) return []
+        const CHUNK = 200
+        const chunks = []
+        for (let i = 0; i < uniqueClaimAccounts.length; i += CHUNK) {
+          chunks.push(uniqueClaimAccounts.slice(i, i + CHUNK))
+        }
+        const results = await Promise.all(chunks.map(chunk =>
+          fetchPaged((from, to) =>
+            supabase
+              .from('m_enrollment_details')
+              .select('account_no, tier, created_at')
+              .in('account_no', chunk)
+              .range(from, to)
+          )
+        ))
+        return results.flat()
+      })(),
+    ])
+
+    const brandMaster = brandMasterData
+
+    // ── PHASE 2 IN-MEMORY PROCESSING ─────────────────────────────────────────
+    // Brand breakdown for sheet points
     const productToCategoryMap = {}
     ;(brandMaster || []).forEach(b => {
       productToCategoryMap[b.brand_name] = b.brand_category
     })
-
     const categoryQtyMap = {}
     Object.entries(productQtyMap).forEach(([productCode, qty]) => {
       const category = productToCategoryMap[productCode] || 'Other'
       categoryQtyMap[category] = (categoryQtyMap[category] || 0) + qty
     })
-
-    const categoryNames = Object.keys(categoryQtyMap)
-    const { data: pointsMaster } = categoryNames.length
-      ? await supabase
-          .from('sheet_point_master')
-          .select('brand_name, points_per_sheet')
-          .in('brand_name', categoryNames)
-      : { data: [] }
-
     const categoryPointsMap = {}
     ;(pointsMaster || []).forEach(p => {
       categoryPointsMap[p.brand_name] = toNumber(p.points_per_sheet)
     })
-
     let sheetPoints = 0
-    const brandBreakdown = Object.entries(categoryQtyMap).map(([category, qty]) => {
+    const allCategories = [...new Set([
+      ...(pointsMaster || []).map(p => p.brand_name).filter(Boolean),
+      ...Object.keys(categoryQtyMap),
+    ])]
+    const brandBreakdown = allCategories.map((category) => {
+      const qty = toNumber(categoryQtyMap[category])
       const pps = categoryPointsMap[category] || 0
       const totalPoints = qty * pps
       sheetPoints += totalPoints
-      return {
-        brandCategory: category,
-        qty,
-        pointsPerSheet: pps,
-        totalPoints,
-      }
+      return { brandCategory: category, qty, pointsPerSheet: pps, totalPoints }
     })
-
     const brandOrder = ['Duro Deco', 'Duro VAP', 'Duro', 'Tower']
     brandBreakdown.sort((a, b) => {
       const ia = brandOrder.indexOf(a.brandCategory)
@@ -320,7 +670,6 @@ export default function PerformanceDashboard() {
       if (ib !== -1) return 1
       return a.brandCategory.localeCompare(b.brandCategory)
     })
-
     const sheetData = {
       achieved: totalApprovedSheets,
       claimed: totalClaimedSheets,
@@ -331,157 +680,137 @@ export default function PerformanceDashboard() {
       brandBreakdown,
     }
 
-    // DMI points: claims for selected period + 2-FY history
-    const dmiHistoryClaims = await fetchPaged((from, to) =>
-      supabase
-        .from('influencer_claim_details')
-        .select('account_number, approved_qty, status_date')
-        .eq('mapped_isr_code', employeeId)
-        .gte('status_date', twoFyStartDate)
-        .lt('status_date', twoFyEndExclusive)
-        .range(from, to)
-    )
-
-    const approvedSheetsByAccountMonth = {}
-    dmiHistoryClaims.forEach(c => {
+    // DMI history from the combined 2-FY claim data (allStatusDateClaims = full 2FY window)
+    const approvedSheetsByAccountMonth = new Map()
+    allStatusDateClaims.forEach(c => {
       if (!c.account_number) return
-      const d = parseDateSafe(c.status_date)
-      if (!d) return
-      const key = monthYearKey(d.getMonth() + 1, d.getFullYear())
+      const parsed = getMonthYearFromValue(c.status_date)
+      if (!parsed) return
+      const key = monthYearKey(parsed.month, parsed.year)
       if (!twoFyMonthKeySet.has(key)) return
-
-      const account = String(c.account_number).trim()
+      const account = normalizeAccount(c.account_number)
       if (!account) return
-      if (!approvedSheetsByAccountMonth[account]) approvedSheetsByAccountMonth[account] = {}
-      approvedSheetsByAccountMonth[account][key] = (approvedSheetsByAccountMonth[account][key] || 0) + toNumber(c.approved_qty)
+      if (!approvedSheetsByAccountMonth.has(account)) approvedSheetsByAccountMonth.set(account, new Map())
+      const monthMap = approvedSheetsByAccountMonth.get(account)
+      monthMap.set(key, (monthMap.get(key) || 0) + toNumber(c.approved_qty))
     })
 
+    const accountMonthHistories = []
+    approvedSheetsByAccountMonth.forEach((monthMap, account) => {
+      let firstQualifiedIdx = Infinity
+      monthMap.forEach((qty, mk) => {
+        if (toNumber(qty) < 10 || !twoFyMonthKeySet.has(mk)) return
+        const [year, month] = mk.split('-').map(Number)
+        const idx = monthYearIndex(month, year)
+        if (idx < firstQualifiedIdx) firstQualifiedIdx = idx
+      })
+      accountMonthHistories.push({ account, monthMap, firstQualifiedIdx })
+    })
+
+    // DMI new vs active classification
     const selectedActiveCandidates = []
     const newDmiSet = new Set()
     const activeDmiSet = new Set()
-
+    let newDmiCount = 0
     sortedPairs.forEach(pair => {
       const selectedKey = monthYearKey(pair.month, pair.year)
       const selectedIdx = monthYearIndex(pair.month, pair.year)
-
-      Object.entries(approvedSheetsByAccountMonth).forEach(([account, monthMap]) => {
-        const thisMonthSheets = toNumber(monthMap[selectedKey])
+      accountMonthHistories.forEach(({ account, monthMap, firstQualifiedIdx }) => {
+        const thisMonthSheets = toNumber(monthMap.get(selectedKey))
         if (thisMonthSheets < 10) return
-
-        const hasPriorActive = Object.entries(monthMap).some(([mk, qty]) => {
-          if (toNumber(qty) < 10 || !twoFyMonthKeySet.has(mk)) return false
-          const [y, m] = mk.split('-').map(Number)
-          return monthYearIndex(m, y) < selectedIdx
-        })
-
+        const hasPriorActive = firstQualifiedIdx < selectedIdx
         if (hasPriorActive) {
           activeDmiSet.add(account)
           selectedActiveCandidates.push({ account, month: pair.month, year: pair.year })
         } else {
           newDmiSet.add(account)
+          newDmiCount += 1
         }
       })
     })
 
-    const selectedStatusByAccountMonth = {}
-    filteredStatusDateClaims.forEach(c => {
-      if (!c.account_number) return
-      const d = parseDateSafe(c.status_date)
-      if (!d) return
-      const mk = monthYearKey(d.getMonth() + 1, d.getFullYear())
-      if (!selectedPairKeySet.has(mk)) return
-
-      const account = String(c.account_number).trim()
-      if (!account) return
-      if (!selectedStatusByAccountMonth[account]) selectedStatusByAccountMonth[account] = {}
-      selectedStatusByAccountMonth[account][mk] = (selectedStatusByAccountMonth[account][mk] || 0) + toNumber(c.approved_qty)
-    })
-
-    const activeAccounts = [...activeDmiSet]
-    const claimedDmiCount = new Set(
-      filteredStatusDateClaims
-        .map(e => String(e.account_number || '').trim())
-        .filter(Boolean)
-    ).size
-
-    let mEnrollmentRows = []
-    if (activeAccounts.length > 0) {
-      mEnrollmentRows = await fetchPaged((from, to) =>
-        supabase
-          .from('m_enrollment_details')
-          .select('account_no, tier, created_at')
-          .ilike('mapped_isr', `${employeeId}%`)
-          .in('account_no', activeAccounts)
-          .gte('created_at', twoFyStartDate)
-          .lt('created_at', twoFyEndExclusive)
-          .range(from, to)
-      )
-    }
-
-    const primaryTierByAccountMonth = new Map()
+    // Build tier map from per-month m_enrollment_details
+    const enrollmentTierByAccountMonth = new Map()
     mEnrollmentRows.forEach(r => {
-      const account = String(r.account_no || '').trim()
-      const tier = String(r.tier || '').trim()
+      const account = normalizeAccount(r.account_no)
+      const tier = normalizeTierLabel(r.tier)
+      const parsed = getMonthYearFromValue(r.created_at)
+      if (!account || !tier || !parsed) return
+      const mk = monthYearKey(parsed.month, parsed.year)
+      const key = `${account}_${mk}`
       const d = parseDateSafe(r.created_at)
-      if (!account || !tier || !d) return
-      const mk = monthYearKey(d.getMonth() + 1, d.getFullYear())
-      const key = `${account}__${mk}`
-      const ts = d.getTime()
-      const prev = primaryTierByAccountMonth.get(key)
-      if (!prev || ts > prev.ts) primaryTierByAccountMonth.set(key, { tier, ts })
+      const ts = d ? d.getTime() : 0
+      const prev = enrollmentTierByAccountMonth.get(key)
+      if (!prev || ts > prev.ts) {
+        enrollmentTierByAccountMonth.set(key, { tier, ts })
+      }
     })
 
-    let fallbackRows = []
-    if (activeAccounts.length > 0) {
-      const CHUNK = 200
-      for (let i = 0; i < activeAccounts.length; i += CHUNK) {
-        const chunk = activeAccounts.slice(i, i + CHUNK)
-        const chunkRows = await fetchPaged((from, to) =>
-          supabase
-            .from('influencer_enrollment_details')
-            .select('influencer_id, influencer_tier, enrollment_date')
-            .in('influencer_id', chunk)
-            .range(from, to)
-        )
-        fallbackRows = fallbackRows.concat(chunkRows)
-      }
-    }
-
-    const fallbackTierByAccount = new Map()
+    // Build fallback tier map from influencer_enrollment_details
+    const influencerEnrollmentTierById = new Map()
     fallbackRows.forEach(r => {
-      const account = String(r.influencer_id || '').trim()
-      const tier = String(r.influencer_tier || '').trim()
+      const account = normalizeAccount(r.influencer_id)
+      const tier = normalizeTierLabel(r.influencer_tier)
       if (!account || !tier) return
       const d = parseDateSafe(r.enrollment_date)
       const ts = d ? d.getTime() : -1
-      const prev = fallbackTierByAccount.get(account)
-      if (!prev || ts > prev.ts) fallbackTierByAccount.set(account, { tier, ts })
-    })
-
-    const resolvedActiveByAccount = new Map()
-    selectedActiveCandidates.forEach(entry => {
-      const mk = monthYearKey(entry.month, entry.year)
-      const idx = monthYearIndex(entry.month, entry.year)
-      const primary = primaryTierByAccountMonth.get(`${entry.account}__${mk}`)?.tier || null
-      const fallback = fallbackTierByAccount.get(entry.account)?.tier || null
-      const tier = primary || fallback || 'Base'
-      const source = primary ? 'primary' : (fallback ? 'fallback' : 'unknown')
-      const prev = resolvedActiveByAccount.get(entry.account)
-      if (!prev || idx >= prev.idx) {
-        resolvedActiveByAccount.set(entry.account, { tier, source, idx })
+      const prev = influencerEnrollmentTierById.get(account)
+      if (!prev || ts > prev.ts) {
+        influencerEnrollmentTierById.set(account, { tier, ts })
       }
     })
 
-    const activePrimaryAccounts = [...resolvedActiveByAccount.entries()]
-      .filter(([, v]) => v.source === 'primary')
-      .map(([account]) => account)
+    // Resolve tier for each active DMI with explicit source tracking
+    const resolvedActiveByEntry = selectedActiveCandidates.map(entry => {
+      const mk = monthYearKey(entry.month, entry.year)
+      
+      // Try primary source first: m_enrollment_details (per-month)
+      const primaryTierData = enrollmentTierByAccountMonth.get(`${entry.account}_${mk}`)
+      if (primaryTierData) {
+        return {
+          account: entry.account,
+          month: entry.month,
+          year: entry.year,
+          tier: primaryTierData.tier,
+          tierSource: 'm_enrollment_details',
+        }
+      }
+      
+      // Fallback source: influencer_enrollment_details (not per-month)
+      const fallbackTierData = influencerEnrollmentTierById.get(entry.account)
+      if (fallbackTierData) {
+        return {
+          account: entry.account,
+          month: entry.month,
+          year: entry.year,
+          tier: fallbackTierData.tier,
+          tierSource: 'influencer_enrollment_details',
+        }
+      }
+      
+      // No tier found
+      return {
+        account: entry.account,
+        month: entry.month,
+        year: entry.year,
+        tier: 'Unknown',
+        tierSource: 'none',
+      }
+    })
 
-    const allKnownTiers = ['Titanium', 'Gold', 'Silver', 'Bronze', 'Base']
+    // Filter to exclude accounts with tier from influencer_enrollment_details ONLY
+    const selectedActiveEntries = resolvedActiveByEntry.filter(
+      entry => entry.tierSource !== 'influencer_enrollment_details'
+    )
+
+    const activePrimaryAccounts = [...new Set(selectedActiveEntries.map(e => e.account))]
+    const allKnownTiers = ['Titanium', 'Gold', 'Silver', 'Bronze', 'Base Tier', 'Base']
     const uniqueTiers = [...new Set([
       ...allKnownTiers,
-      ...[...resolvedActiveByAccount.values()].map(v => v.tier).filter(Boolean),
+      ...selectedActiveEntries.map(e => normalizeTierLabel(e.tier)).filter(Boolean),
     ])]
 
+    // ── PHASE 3: tier points lookup (depends on uniqueTiers) ──────────────────
     const { data: tierPoints } = uniqueTiers.length
       ? await supabase
           .from('dmi_raw_points_master')
@@ -489,61 +818,42 @@ export default function PerformanceDashboard() {
           .in('tier', uniqueTiers)
       : { data: [] }
 
+    // ── FINAL COMPUTATION (all in-memory from here) ───────────────────────────
     const tierPointsMap = {}
     ;(tierPoints || []).forEach(tp => {
       tierPointsMap[String(tp.tier || '').trim()] = toNumber(tp.points_per_dmi)
     })
-
     const tierCountMap = {}
-    activePrimaryAccounts.forEach(account => {
-      const tier = resolvedActiveByAccount.get(account)?.tier || 'Base'
+    selectedActiveEntries.forEach(entry => {
+      const tier = entry.tier || 'Unknown'
       if (!tierCountMap[tier]) tierCountMap[tier] = 0
       tierCountMap[tier] += 1
     })
-
     let totalRawPoints = 0
     Object.entries(tierCountMap).forEach(([tier, count]) => {
       totalRawPoints += toNumber(count) * toNumber(tierPointsMap[tier])
     })
-
     const activeDmiCount = activePrimaryAccounts.length
-    const sheetsByUniqueActiveDmis = activePrimaryAccounts.reduce((sum, account) => {
-      const monthMap = selectedStatusByAccountMonth[account] || {}
-      return sum + Object.values(monthMap).reduce((s, v) => s + toNumber(v), 0)
-    }, 0)
-    const averageSheetsPerDmi = activeDmiCount > 0 ? (sheetsByUniqueActiveDmis / activeDmiCount) : 0
-
+    const achievedSheetsInPeriod = filteredStatusDateClaims.reduce((sum, c) => sum + toNumber(c.approved_qty), 0)
+    // Use (activeDmiCount + newDmiCount) as denominator, same as mobile version
+    const approvedDmisForAverage = activeDmiCount + newDmiCount
+    const averageSheetsPerDmi = approvedDmisForAverage > 0 ? parseFloat((achievedSheetsInPeriod / approvedDmisForAverage).toFixed(1)) : 0
     let rawPointsMultiplier = 1
     if (averageSheetsPerDmi < 15) rawPointsMultiplier = 0.15
     else if (averageSheetsPerDmi < 40) rawPointsMultiplier = 0.5
-
     const finalRawPoints = Math.round(totalRawPoints * rawPointsMultiplier)
-
-    const newDmiCount = newDmiSet.size
     const newEnrolledPoints = newDmiCount * 10
-
-    const tierUpgradeRows = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('tier_upgrade_performance_report')
-            .select('mapped_isr, change_type, previous_tier, tier_change_date')
-            .ilike('mapped_isr', `${employeeId}%`)
-            .gte('tier_change_date', startDate)
-            .lt('tier_change_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
     const qualifyingUpgrades = tierUpgradeRows.filter(r =>
       pairMatch(r.tier_change_date) &&
       String(r.change_type || '').trim() === 'Tier Upgrade' &&
       ['Bronze', 'Gold', 'Silver'].includes(String(r.previous_tier || '').trim())
     )
-
     const tierUpgradedDmiCount = qualifyingUpgrades.length
     const dmiUpdatePoints = tierUpgradedDmiCount * 25
-
-    const tierOrder = ['Titanium', 'Gold', 'Silver', 'Bronze', 'Base']
+    Object.keys(tierPointsMap).forEach((tier) => {
+      if (tierCountMap[tier] == null) tierCountMap[tier] = 0
+    })
+    const tierOrder = ['Titanium', 'Gold', 'Silver', 'Bronze', 'Base Tier']
     const tierBreakdown = Object.entries(tierCountMap)
       .map(([tier, count]) => ({
         tier,
@@ -558,13 +868,14 @@ export default function PerformanceDashboard() {
         if (ib !== -1) return 1
         return a.tier.localeCompare(b.tier)
       })
-
     const dmiData = {
       achievedPoints: finalRawPoints + newEnrolledPoints + dmiUpdatePoints,
       finalRawPoints,
       newEnrolledPoints,
       dmiUpdatePoints,
-      claimedDmiCount,
+      claimedDmiCount: new Set(
+        filteredStatusDateClaims.map(e => String(e.account_number || '').trim()).filter(Boolean)
+      ).size,
       activeDmiCount,
       newDmiCount,
       tierUpgradedDmiCount,
@@ -574,20 +885,6 @@ export default function PerformanceDashboard() {
     }
 
     // S/G/T Coverage
-    const enrollmentRows = await fetchPaged((from, to) =>
-      supabase
-        .from('m_enrollment_details')
-        .select('account_no, tier')
-        .ilike('mapped_isr', `${employeeId}%`)
-        .in('tier', ['Silver', 'Gold', 'Titanium'])
-        .range(from, to)
-    )
-
-    const uniqueTierByAccount = {}
-    enrollmentRows.forEach(r => {
-      if (r.account_no && !uniqueTierByAccount[r.account_no]) uniqueTierByAccount[r.account_no] = r.tier
-    })
-
     let monthlyVisitGoal = 0
     const tierMonthlyGoalMap = { Silver: 0, Gold: 0, Titanium: 0 }
     Object.values(uniqueTierByAccount).forEach(tier => {
@@ -599,31 +896,17 @@ export default function PerformanceDashboard() {
         tierMonthlyGoalMap[tier] += 2
       }
     })
-
     const sgtGoal = monthlyVisitGoal * sortedPairs.length
-
-    const sgtVisits = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('influencer_visit_reports')
-            .select('influencer_code, visit_date, influencer_tier')
-            .eq('mapped_isr_code', employeeId)
-            .in('influencer_tier', ['Silver', 'Gold', 'Titanium'])
-            .gte('visit_date', startDate)
-            .lt('visit_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
     const uniqueDayVisitMap = new Map()
-    sgtVisits.filter(v => pairMatch(v.visit_date)).forEach(v => {
-      if (!v.influencer_code || !v.visit_date) return
-      const d = parseDateSafe(v.visit_date)
-      if (!d) return
-      const key = `${v.influencer_code}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`
-      if (!uniqueDayVisitMap.has(key)) uniqueDayVisitMap.set(key, v)
-    })
-
+    sgtVisits
+      .filter(v => pairMatch(v.visit_date) && activeSgtAccounts.has(String(v.influencer_code || '').trim()))
+      .forEach(v => {
+        if (!v.influencer_code || !v.visit_date) return
+        const d = parseDateSafe(v.visit_date)
+        if (!d) return
+        const key = `${v.influencer_code}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`
+        if (!uniqueDayVisitMap.has(key)) uniqueDayVisitMap.set(key, v)
+      })
     const monthlyVisitCounts = {}
     Array.from(uniqueDayVisitMap.values()).forEach(v => {
       const d = parseDateSafe(v.visit_date)
@@ -632,7 +915,6 @@ export default function PerformanceDashboard() {
       if (!monthlyVisitCounts[mk]) monthlyVisitCounts[mk] = { count: 0, tier: v.influencer_tier }
       monthlyVisitCounts[mk].count += 1
     })
-
     let sgtAchieved = 0
     const tierAchievedMap = { Silver: 0, Gold: 0, Titanium: 0 }
     Object.values(monthlyVisitCounts).forEach(({ count, tier }) => {
@@ -641,7 +923,6 @@ export default function PerformanceDashboard() {
       sgtAchieved += capped
       if (tierAchievedMap[tier] !== undefined) tierAchievedMap[tier] += capped
     })
-
     const sgtData = {
       visitGoal: sgtGoal,
       achievedVisits: sgtAchieved,
@@ -652,26 +933,16 @@ export default function PerformanceDashboard() {
       })),
     }
 
-    // War Task Completion
-    const warRows = await fetchPaged((from, to) =>
-      supabase
-        .from('telecalling_influencer_wartask')
-        .select('task_date, status_as_on_today, status_change_date')
-        .eq('mapped_isr_code', employeeId)
-        .range(from, to)
-    )
-
+    // WAR task completion
     const warFiltered = warRows.filter(r => pairMatch(r.task_date))
     const isClosureWithinAllowedWindow = (taskDateStr, statusDateStr) => {
       const taskDate = parseDateSafe(taskDateStr)
       const statusDate = parseDateSafe(statusDateStr)
       if (!taskDate || !statusDate) return false
-
       const taskMonthStart = new Date(taskDate.getFullYear(), taskDate.getMonth(), 1, 0, 0, 0, 0)
       const nextMonth7End = new Date(taskDate.getFullYear(), taskDate.getMonth() + 1, 7, 23, 59, 59, 999)
       return statusDate >= taskMonthStart && statusDate <= nextMonth7End
     }
-
     const warTaskData = {
       assigned: warFiltered.length,
       completed: warFiltered.filter(r =>
@@ -681,37 +952,12 @@ export default function PerformanceDashboard() {
     }
 
     // DMI + Site Visits
-    const attendanceRows = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('monthly_attendance_report')
-            .select('attendance_date, attendance_status')
-            .eq('employee_code', employeeId)
-            .gte('attendance_date', startDate)
-            .lt('attendance_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
     const filteredAttendance = attendanceRows.filter(r => pairMatch(r.attendance_date))
     const workingDays = filteredAttendance.filter(r => {
       const s = String(r.attendance_status || '').trim()
       return s === 'P | P' || s === '- | -'
     }).length
-    const dmiSiteGoal = workingDays * 10
-
-    const existingDmiVisitRows = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('influencer_visit_reports')
-            .select('influencer_code, visit_date')
-            .eq('emp_login', employeeId)
-            .gte('visit_date', startDate)
-            .lt('visit_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
+    const dmiSiteGoal = Math.max(workingDays - 1, 0) * 10
     const existingDmiVisitSet = new Set()
     existingDmiVisitRows.filter(v => pairMatch(v.visit_date)).forEach(v => {
       if (!v.influencer_code || !v.visit_date) return
@@ -719,19 +965,6 @@ export default function PerformanceDashboard() {
       if (!d) return
       existingDmiVisitSet.add(`${v.influencer_code}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`)
     })
-
-    const newDmiVisitRows = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('influencer_enrollment_details')
-            .select('influencer_id, enrollment_date')
-            .eq('enrolled_by_dso_code', employeeId)
-            .gte('enrollment_date', startDate)
-            .lt('enrollment_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
     const newDmiVisitSet = new Set()
     newDmiVisitRows.filter(v => pairMatch(v.enrollment_date)).forEach(v => {
       if (!v.influencer_id || !v.enrollment_date) return
@@ -739,19 +972,6 @@ export default function PerformanceDashboard() {
       if (!d) return
       newDmiVisitSet.add(`${v.influencer_id}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`)
     })
-
-    const leadDetailRows = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('lead_details_reports')
-            .select('lead_created_by, created_date, lead_code')
-            .ilike('lead_created_by', `${employeeId}%`)
-            .gte('created_date', startDate)
-            .lt('created_date', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
     const newSiteSet = new Set()
     leadDetailRows.filter(v => pairMatch(v.created_date)).forEach(v => {
       if (!v.lead_code || !v.created_date) return
@@ -759,24 +979,18 @@ export default function PerformanceDashboard() {
       if (!d) return
       newSiteSet.add(`${v.lead_code}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`)
     })
-
-    const leadTaskRows = (startDate && endDateExclusive)
-      ? await fetchPaged((from, to) =>
-          supabase
-            .from('lead_task_reports')
-            .select('id, task_created_on, lead_id')
-            .eq('task_created_by_dso_code', employeeId)
-            .gte('task_created_on', startDate)
-            .lt('task_created_on', endDateExclusive)
-            .range(from, to)
-        )
-      : []
-
     const existingSiteSet = new Set()
-    leadTaskRows.filter(v => pairMatch(v.task_created_on)).forEach((v, idx) => {
+    filteredLeadTasks.forEach((v, idx) => {
       const d = parseDateSafe(v.task_created_on)
       if (!d) return
-
+      const taskDateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      if (v.lead_id != null && v.lead_id !== '') {
+        const meta = leadCreatedMetaMap.get(v.lead_id)
+        if (meta) {
+          const hasDifferentDate = [...meta.dates].some(date => date !== taskDateKey)
+          if (!(meta.hasNullDate || hasDifferentDate)) return
+        }
+      }
       if (v.lead_id) {
         existingSiteSet.add(`${v.lead_id}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`)
       } else {
@@ -784,14 +998,12 @@ export default function PerformanceDashboard() {
         existingSiteSet.add(`nulllead_${rowToken}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`)
       }
     })
-
     const existingDmiVisits = existingDmiVisitSet.size
     const newDmiVisits = newDmiVisitSet.size
     const dmiVisits = existingDmiVisits + newDmiVisits
     const newSiteVisits = newSiteSet.size
     const existingSiteVisits = existingSiteSet.size
     const siteVisits = newSiteVisits + existingSiteVisits
-
     const dmiSiteData = {
       visitGoal: dmiSiteGoal,
       achievedVisits: dmiVisits + siteVisits,
@@ -802,7 +1014,6 @@ export default function PerformanceDashboard() {
       newSiteVisits,
       existingSiteVisits,
     }
-
     // Behavior
     const behaviorGoal = Math.round(
       sortedPairs.reduce((sum, pair) => {
@@ -857,6 +1068,8 @@ export default function PerformanceDashboard() {
           visitGoal: dmiSiteData.visitGoal,
           achievedVisits: dmiSiteAchievedCapped,
           dmiVisits: dmiSiteData.dmiVisits,
+          newDmiVisits: dmiSiteData.newDmiVisits,
+          existingDmiVisits: dmiSiteData.existingDmiVisits,
           siteVisits: dmiSiteData.siteVisits,
           newSiteVisits: dmiSiteData.newSiteVisits,
           existingSiteVisits: dmiSiteData.existingSiteVisits,
@@ -926,6 +1139,150 @@ export default function PerformanceDashboard() {
     }
   }, [selectedUser, selectedFYStart, selectedQuarters, selectedMonths, monthYearPairs, computePerformance])
 
+  const downloadCurrentReport = useCallback(() => {
+    if (!detailData || !selectedUser) return
+
+    const selectionLabel = buildSelectionLabel(selectedQuarters, selectedMonths)
+    const fyLabel = `FY_${selectedFYStart}-${String(selectedFYStart + 1).slice(-2)}`
+    const safeName = String(selectedUser.full_name || selectedUser.employee_id || 'User').replace(/[^a-z0-9]+/gi, '_')
+    const fileName = `Performance_Report_${safeName}_${fyLabel}_${selectionLabel}.xlsx`
+
+    const summaryRows = [
+      {
+        Employee: selectedUser.employee_id || '',
+        Employee_Name: selectedUser.full_name || '',
+        Email: selectedUser.email || '',
+        FY: fyLabel,
+        Selection: selectionLabel,
+        Total_Goal_Poi: detailData.totals.goalPoints,
+        Total_Achieved_Poin: detailData.totals.achievedPoints,
+        Overall_Achievement_Percentage: detailData.totals.percentage,
+      },
+    ]
+
+    const sheetRows = [
+      {
+        Metric: 'Sheets',
+        Claimed: detailData.sheetData.claimed,
+        Achieved: detailData.sheetData.approvedSummary,
+        Goal: detailData.sheetData.goal,
+        Points: detailData.sheetData.points,
+      },
+      ...detailData.sheetData.brandBreakdown.map(row => ({
+        Metric: row.brandCategory,
+        Claimed: row.qty,
+        Achieved: row.qty,
+        Goal: row.pointsPerSheet,
+        Points: row.totalPoints,
+      })),
+    ]
+
+    const dmiRows = [
+      {
+        Metric: 'DMI Points',
+        Claimed_DMIs: detailData.dmiData.claimedDmiCount,
+        Active_DMIs: detailData.dmiData.activeDmiCount,
+        Goal: detailData.dmiGoal,
+        Achieved_Points: detailData.dmiData.achievedPoints,
+        Raw_Points: detailData.dmiData.finalRawPoints,
+        New_DMI_Points: detailData.dmiData.newEnrolledPoints,
+        Tier_Upgrade_Points: detailData.dmiData.dmiUpdatePoints,
+      },
+      ...detailData.dmiData.tierBreakdown.map(row => ({
+        Metric: row.tier,
+        Claimed_DMIs: '',
+        Active_DMIs: row.activeDmiCount,
+        Goal: '',
+        Achieved_Points: row.activeDmiCount * row.pointsPerDmi,
+        Raw_Points: '',
+        New_DMI_Points: '',
+        Tier_Upgrade_Points: '',
+      })),
+    ]
+
+    const behaviorRows = detailData.behaviorData.breakdown.map(row => ({
+      Metric: row.label,
+      Weightage: `${row.weightage}%`,
+      Value: `${row.value}%`,
+      Achieved: row.achievedVisits ?? row.completed ?? 0,
+      Goal: row.visitGoal ?? row.assigned ?? 0,
+    }))
+
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), 'Summary')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sheetRows), 'Sheet Points')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dmiRows), 'DMI Points')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(behaviorRows), 'Behavior')
+    XLSX.writeFile(workbook, fileName)
+  }, [detailData, selectedUser, selectedFYStart, selectedQuarters, selectedMonths])
+
+  const downloadAllUsersReport = useCallback(async () => {
+    if (!monthYearPairs.length || allUsersExporting) return
+
+    const selectionLabel = buildSelectionLabel(selectedQuarters, selectedMonths)
+    const fyLabel = `FY_${selectedFYStart}-${String(selectedFYStart + 1).slice(-2)}`
+    const fileName = `Performance_Report_All_Users_${fyLabel}_${selectionLabel}.xlsx`
+
+    const exportUsers = filteredUsers.filter(user => user?.employee_id)
+    if (exportUsers.length === 0) return
+
+    const rows = []
+    const BATCH_SIZE = 4
+    let done = 0
+
+    setAllUsersExporting(true)
+    setAllUsersExportProgress({ done: 0, total: exportUsers.length })
+
+    try {
+      for (let i = 0; i < exportUsers.length; i += BATCH_SIZE) {
+        const batch = exportUsers.slice(i, i + BATCH_SIZE)
+        const batchRows = await Promise.all(batch.map(async (user) => {
+          try {
+            const { data } = await cachedFetch(
+              `perf_detail_export_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
+              () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
+              TTL.SHORT
+            )
+
+            if (!data) return null
+
+            return {
+              Employee: user.employee_id || '',
+              Employee_Name: user.full_name || '',
+              Branch_Name: user.branch_name || '',
+              Achieved_Sheet: data.sheetData?.approvedSummary || 0,
+              Sheet_Go: data.sheetData?.goal || 0,
+              Achieved_Sheet_Poin: data.sheetData?.points || 0,
+              Sheet_Points_Go: data.sheetData?.goal || 0,
+              Achieved_DMI_Poi: data.dmiData?.achievedPoints || 0,
+              Goal_DMI_Poi: data.dmiGoal || 0,
+              Achieved_Behaviour_Poin: data.behaviorData?.achievedPoints || 0,
+              Goal_Behaviour_Poi: data.behaviorData?.goal || 0,
+              Total_Goal_Poi: data.totals?.goalPoints || 0,
+              Total_Achieved_Poin: data.totals?.achievedPoints || 0,
+              Overall_Achievement_Percentage: data.totals?.percentage || 0,
+            }
+          } catch (error) {
+            console.error('All users export error for', user.employee_id, error)
+            return null
+          }
+        }))
+
+        rows.push(...batchRows.filter(Boolean))
+        done += batch.length
+        setAllUsersExportProgress({ done, total: exportUsers.length })
+      }
+
+      const workbook = XLSX.utils.book_new()
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Performance Report')
+      XLSX.writeFile(workbook, fileName)
+    } finally {
+      setAllUsersExporting(false)
+      setAllUsersExportProgress({ done: 0, total: 0 })
+    }
+  }, [filteredUsers, monthYearPairs, computePerformance, selectedFYStart, selectedQuarters, selectedMonths, allUsersExporting])
+
   useEffect(() => {
     mountedRef.current = true
     loadUsers()
@@ -935,6 +1292,42 @@ export default function PerformanceDashboard() {
   useEffect(() => {
     loadDetail(false)
   }, [loadDetail])
+
+  // Fetch admin user's branch and branch access if role is admin
+  useEffect(() => {
+    if (role === 'admin' && authUser?.id) {
+      Promise.all([
+        supabase
+          .from('users')
+          .select('branch_id')
+          .eq('id', authUser.id)
+          .single(),
+        cachedFetch(
+          `perf_dashboard_branch_access_${authUser.id}`,
+          async () => {
+            const { data, error } = await supabase
+              .from('performance_dashboard_branch_access')
+              .select('branch_id')
+              .eq('user_id', authUser.id)
+            if (error) throw error
+            return data || []
+          },
+          TTL.SHORT
+        )
+      ]).then(([userBranchResult, accessResult]) => {
+        if (!mountedRef.current) return
+        const branchId = userBranchResult?.data?.branch_id || null
+        const accessRows = Array.isArray(accessResult?.data) ? accessResult.data : []
+        const allowedBranchIds = accessRows.map(row => row.branch_id).filter(Boolean)
+
+        setAdminUserBranchId(branchId)
+        setAdminAllowedBranchIds(allowedBranchIds.length > 0 ? allowedBranchIds : (branchId ? [branchId] : []))
+      })
+    } else {
+      setAdminUserBranchId(null)
+      setAdminAllowedBranchIds([])
+    }
+  }, [role, authUser?.id])
 
   const toggleQuarter = (q) => {
     if (q === 'All') {
@@ -975,7 +1368,7 @@ export default function PerformanceDashboard() {
     <main className="apdr-main">
       <section className="apdr-header">
         <div>
-          <h2>Performance Dashboard Report</h2>
+          <h2>DURO Lakshya Dashboard Report</h2>
           <p>View all users and open detailed performance metrics for each user</p>
         </div>
         <button className="apdr-btn apdr-btn-secondary" onClick={loadUsers} disabled={usersLoading}>
@@ -993,23 +1386,74 @@ export default function PerformanceDashboard() {
         </div>
 
         <div className="apdr-filter-group">
-          <label>Quarter</label>
-          <div className="apdr-chip-wrap">
-            <button className={`apdr-chip ${selectedQuarters.includes('All') ? 'active' : ''}`} onClick={() => toggleQuarter('All')}>All</button>
-            {['Q1', 'Q2', 'Q3', 'Q4'].map(q => (
-              <button key={q} className={`apdr-chip ${selectedQuarters.includes(q) ? 'active' : ''}`} onClick={() => toggleQuarter(q)}>{q}</button>
-            ))}
+          <label>Quarter / Month</label>
+          <div className="apdr-inline-filters">
+            <select
+              className="apdr-quarter-select"
+              value={selectedQuarters.includes('All') ? 'All' : selectedQuarters[0] || 'All'}
+              onChange={(e) => {
+                const value = e.target.value
+                if (value === 'All') {
+                  setSelectedQuarters(['All'])
+                  setSelectedMonths(['All'])
+                  return
+                }
+
+                setSelectedQuarters([value])
+                setSelectedMonths(['All'])
+              }}
+            >
+              <option value="All">All Quarters</option>
+              <option value="Q1">Q1</option>
+              <option value="Q2">Q2</option>
+              <option value="Q3">Q3</option>
+              <option value="Q4">Q4</option>
+            </select>
+
+            <select
+              className="apdr-month-select"
+              value={selectedMonths.includes('All') ? 'All' : String(selectedMonths[0] || 'All')}
+              onChange={(e) => {
+                const value = e.target.value
+                if (value === 'All') {
+                  setSelectedMonths(['All'])
+                  return
+                }
+                setSelectedMonths([value])
+              }}
+            >
+              <option value="All">All Months</option>
+              {availableMonths.map(m => (
+                <option key={m} value={String(m)}>{MONTH_LABELS[m]}</option>
+              ))}
+            </select>
           </div>
         </div>
 
-        <div className="apdr-filter-group">
-          <label>Month</label>
-          <div className="apdr-chip-wrap">
-            <button className={`apdr-chip ${selectedMonths.includes('All') ? 'active' : ''}`} onClick={() => toggleMonth('All')}>All</button>
-            {availableMonths.map(m => (
-              <button key={m} className={`apdr-chip ${selectedMonths.includes(m) ? 'active' : ''}`} onClick={() => toggleMonth(m)}>{MONTH_LABELS[m]}</button>
+        <div className="apdr-filter-group apdr-filter-action">
+          <label>
+            Branch
+            {role === 'admin' && <span title="Your branch cannot be changed"> (Read-only)</span>}
+          </label>
+          <select 
+            value={selectedBranch} 
+            onChange={(e) => role !== 'admin' && setSelectedBranch(e.target.value)}
+            disabled={role === 'admin'}
+          >
+            {branchOptions.map(branch => (
+              <option key={branch} value={branch}>{branch}</option>
             ))}
-          </div>
+          </select>
+        </div>
+
+        <div className="apdr-filter-group apdr-filter-action">
+          <label>Report</label>
+          <button className="apdr-btn apdr-btn-secondary" onClick={downloadAllUsersReport} disabled={allUsersExporting}>
+            <i className={`fa-solid ${allUsersExporting ? 'fa-spinner fa-spin' : 'fa-file-arrow-down'}`}></i>
+            {allUsersExporting
+              ? `Downloading (${allUsersExportProgress.done}/${allUsersExportProgress.total})`
+              : 'Download All Users'}
+          </button>
         </div>
       </section>
 
@@ -1072,6 +1516,10 @@ export default function PerformanceDashboard() {
                   <button className="apdr-btn apdr-btn-secondary" onClick={() => loadDetail(true)}>
                     <i className="fa-solid fa-rotate-right"></i>
                     Refresh Detail
+                  </button>
+                  <button className="apdr-btn apdr-btn-primary" onClick={downloadCurrentReport}>
+                    <i className="fa-solid fa-download"></i>
+                    Download Report
                   </button>
                 </div>
               </div>
@@ -1177,6 +1625,57 @@ export default function PerformanceDashboard() {
                         ))}
                       </tbody>
                     </table>
+
+                    {detailData.behaviorData.breakdown
+                      .filter(row => row.label === 'S/G/T Coverage' && Array.isArray(row.sgtTierBreakdown) && row.sgtTierBreakdown.length > 0)
+                      .map((row, idx) => (
+                        <div key={`sgt-split-${idx}`} className="apdr-subtable-wrap" style={{ marginTop: '0.75rem' }}>
+                          <h5>S/G/T Tier-wise Breakdown</h5>
+                          <table className="apdr-subtable">
+                            <thead><tr><th>Tier</th><th>Achieved</th><th>Goal</th></tr></thead>
+                            <tbody>
+                              {row.sgtTierBreakdown.map((tierRow, tierIdx) => (
+                                <tr key={tierIdx}>
+                                  <td>{tierRow.tier}</td>
+                                  <td>{toNumber(tierRow.achievedVisits).toLocaleString()}</td>
+                                  <td>{toNumber(tierRow.goalVisits).toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
+
+                    {detailData.behaviorData.breakdown
+                      .filter(row => row.label === 'DMI+Site Visits')
+                      .map((row, idx) => (
+                        <div key={`dmisite-split-${idx}`} className="apdr-subtable-wrap" style={{ marginTop: '0.75rem' }}>
+                          <h5>DMI + Site Visits Bifurcation</h5>
+                          <table className="apdr-subtable">
+                            <thead><tr><th>Type</th><th>New</th><th>Existing</th><th>Total</th></tr></thead>
+                            <tbody>
+                              <tr>
+                                <td>DMI Visits</td>
+                                <td>{toNumber(row.newDmiVisits).toLocaleString()}</td>
+                                <td>{toNumber(row.existingDmiVisits).toLocaleString()}</td>
+                                <td>{toNumber(row.dmiVisits).toLocaleString()}</td>
+                              </tr>
+                              <tr>
+                                <td>Site Visits</td>
+                                <td>{toNumber(row.newSiteVisits).toLocaleString()}</td>
+                                <td>{toNumber(row.existingSiteVisits).toLocaleString()}</td>
+                                <td>{toNumber(row.siteVisits).toLocaleString()}</td>
+                              </tr>
+                              <tr>
+                                <td><strong>Total Visits</strong></td>
+                                <td>{(toNumber(row.newDmiVisits) + toNumber(row.newSiteVisits)).toLocaleString()}</td>
+                                <td>{(toNumber(row.existingDmiVisits) + toNumber(row.existingSiteVisits)).toLocaleString()}</td>
+                                <td><strong>{toNumber(row.achievedVisits).toLocaleString()}</strong></td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
                   </div>
                 </div>
               </div>

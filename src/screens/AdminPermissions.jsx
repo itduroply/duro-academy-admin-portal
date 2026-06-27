@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { NAV_ITEMS, SCREENS } from '../config/permissions'
+import { useNotification } from '../contexts/NotificationContext'
 import './AdminPermissions.css'
 
 // All manageable screens (exclude admin-permissions itself — super_admin only)
@@ -11,6 +12,7 @@ const MANAGEABLE_SCREENS = NAV_ITEMS.filter(
 
 function AdminPermissions() {
   const mountedRef = useRef(true)
+  const { showNotification } = useNotification()
   const { user: currentUser } = useAuth()
   const [admins, setAdmins] = useState([])
   const [selectedAdmin, setSelectedAdmin] = useState(null)
@@ -124,7 +126,7 @@ function AdminPermissions() {
       }
     } catch (error) {
       console.error('Error saving permissions:', error)
-      alert('Failed to save permissions: ' + error.message)
+      showNotification('Failed to save permissions: ' + error.message, 'error')
     } finally {
       if (mountedRef.current) setSaving(false)
     }

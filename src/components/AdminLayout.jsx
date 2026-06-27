@@ -20,6 +20,7 @@ const BREADCRUMB_MAP = {
   '/active-logins': 'Active Logins',
   '/assign-modules': 'Assign Modules',
   '/admin-permissions': 'Admin Permissions',
+  '/performance-branch-access': 'Branch Access',
 }
 
 function AdminLayout() {
