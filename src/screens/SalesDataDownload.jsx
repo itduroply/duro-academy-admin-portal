@@ -14,29 +14,7 @@ const SHEET_DOWNLOAD_CONFIGS = {
     icon: 'fa-solid fa-file-invoice',
     sheetName: 'InfluencerClaimStageDetails',
     fileName: 'InfluencerClaimStageDetails_Data.xlsx',
-    columns: [
-      { header: 'Parent Claim No', field: 'parent_claim_no' },
-      { header: 'Claim No', field: 'claim_no' },
-      { header: 'Claim Date', field: 'claim_date' },
-      { header: 'Account Number', field: 'account_number' },
-      { header: 'Influencer Name', field: 'influencer_name' },
-      { header: 'Influencer Type', field: 'influencer_type' },
-      { header: 'Influencer Market City', field: 'influencer_market_city' },
-      { header: 'Mobile No', field: 'mobile_no' },
-      { header: 'Pincode', field: 'pincode' },
-      { header: 'Influencer City', field: 'influencer_city' },
-      { header: 'Influencer District', field: 'influencer_district' },
-      { header: 'Influencer State', field: 'influencer_state' },
-      { header: 'Mapped ISR CODE', field: 'mapped_isr_code' },
-      { header: 'Product Code', field: 'product_code' },
-      { header: 'Dealer Name', field: 'dealer_name' },
-      { header: 'Dealer Code', field: 'dealer_code' },
-      { header: 'Claimed Qty(Sheets)', field: 'claimed_qty_sheets' },
-      { header: 'Approved Qty', field: 'approved_qty' },
-      { header: 'Approved Points', field: 'approved_points' },
-      { header: 'Status', field: 'status' },
-      { header: 'Influencer Tier', field: 'influencer_tier' },
-    ],
+    allColumns: true,
   },
   influencer_enrollment: {
     label: 'Influencer Enrollment Detail',
@@ -247,7 +225,28 @@ const SHEET_DOWNLOAD_CONFIGS = {
   },
 }
 
-async function fetchAllRows(table, columns) {
+async function fetchAllRows(table, columns, allColumns = false) {
+  if (allColumns) {
+    let all = []
+    let from = 0
+
+    while (true) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .range(from, from + PAGE_SIZE - 1)
+
+      if (error) throw error
+      if (!data || data.length === 0) break
+
+      all = all.concat(data)
+      if (data.length < PAGE_SIZE) break
+      from += PAGE_SIZE
+    }
+
+    return all
+  }
+
   const fields = Array.isArray(columns) ? columns.map((c) => c.field).filter(Boolean) : []
   const selectExpr = ['id', ...new Set(fields)].join(',')
 
@@ -280,7 +279,14 @@ function buildSheet(rows, columns) {
   const safeColumns = Array.isArray(columns) ? columns : []
 
   if (safeColumns.length === 0) {
-    return XLSX.utils.json_to_sheet([])
+    const normalizedRows = safeRows.map((row) => {
+      const out = {}
+      Object.entries(row || {}).forEach(([key, value]) => {
+        out[key] = value === null || value === undefined ? '' : value
+      })
+      return out
+    })
+    return XLSX.utils.json_to_sheet(normalizedRows)
   }
 
   const mappedRows = safeRows.map((row) => {
@@ -339,7 +345,7 @@ function SalesDataDownload() {
 
     try {
       setDownloadingKey(key)
-      const rows = await fetchAllRows(cfg.table, cfg.columns)
+      const rows = await fetchAllRows(cfg.table, cfg.columns, cfg.allColumns === true)
       const ws = buildSheet(rows, cfg.columns)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, cfg.sheetName)
@@ -358,7 +364,7 @@ function SalesDataDownload() {
       const wb = XLSX.utils.book_new()
 
       for (const [, cfg] of sheetEntries) {
-        const rows = await fetchAllRows(cfg.table, cfg.columns)
+        const rows = await fetchAllRows(cfg.table, cfg.columns, cfg.allColumns === true)
         const ws = buildSheet(rows, cfg.columns)
         XLSX.utils.book_append_sheet(wb, ws, cfg.sheetName)
       }

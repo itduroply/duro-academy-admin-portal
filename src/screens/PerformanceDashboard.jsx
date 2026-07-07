@@ -250,12 +250,13 @@ export default function PerformanceDashboard() {
       setUsersLoading(true)
       setUsersError(null)
       const { data } = await cachedFetch(
-        'perf_dashboard_assigned_users',
+        'perf_dashboard_assigned_users_dgo',
         async () => {
           const [assignedRes, branchesRes] = await Promise.all([
             supabase
               .from('user_performance_dashboard')
               .select('users:user_id(id, full_name, email, employee_id, department_id, branch_id)')
+              .contains('access_type', ['DGO'])
               .order('assigned_at', { ascending: false }),
             supabase
               .from('branches')
