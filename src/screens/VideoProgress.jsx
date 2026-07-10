@@ -383,6 +383,46 @@ function VideoProgress() {
   }
 
   const [exporting, setExporting] = useState(false)
+  const [quickExporting, setQuickExporting] = useState(false)
+
+  const handleQuickReport = useCallback(() => {
+    setQuickExporting(true)
+    setTimeout(() => {
+      try {
+        const rows = filteredUsers.map(user => ({
+          'Employee ID': user.employee_id || '',
+          'Name': user.full_name || '',
+          'Email': user.email || '',
+          'Department': user.deptName || '',
+          'Branch': user.branchName || '',
+          'Total Videos': user.totalVideos,
+          'Watched': user.watchedVideos,
+          'Pending': user.pendingVideos,
+          'Progress %': user.progress,
+        }))
+        if (rows.length === 0) {
+          showNotification('No data to export', 'warning')
+          setQuickExporting(false)
+          return
+        }
+        const ws = XLSX.utils.json_to_sheet(rows)
+        const colWidths = Object.keys(rows[0]).map(key => {
+          const maxLen = Math.max(key.length, ...rows.map(r => String(r[key] ?? '').length))
+          return { wch: Math.min(maxLen + 2, 40) }
+        })
+        ws['!cols'] = colWidths
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, 'Quick Report')
+        XLSX.writeFile(wb, `Video_Progress_Quick_Report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      } catch (err) {
+        console.error('Quick export error:', err)
+        showNotification('Export failed: ' + err.message, 'error')
+      } finally {
+        setQuickExporting(false)
+      }
+    }, 50)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredUsers])
 
   const handleExportAll = useCallback(() => {
     setExporting(true)
@@ -708,6 +748,10 @@ function VideoProgress() {
           <p>User-wise video completion based on assigned categories</p>
         </div>
         <div className="vp-header-actions">
+          <button className="vp-export-btn vp-quick-btn" onClick={handleQuickReport} disabled={quickExporting || filteredUsers.length === 0} title="Download Quick Summary Report">
+            <i className={`fa-solid ${quickExporting ? 'fa-spinner fa-spin' : 'fa-bolt'}`}></i>
+            {quickExporting ? 'Downloading…' : 'Quick Report'}
+          </button>
           <button className="vp-export-btn" onClick={handleExportAll} disabled={exporting || filteredUsers.length === 0} title="Export All Users Report">
             <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-file-excel'}`}></i>
             {exporting ? 'Exporting…' : 'Export Report'}
