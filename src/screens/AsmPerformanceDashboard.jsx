@@ -50,8 +50,7 @@ function getCurrentQuarterKey() {
   return 'Q4'
 }
 
-async function fetchPaged(getQuery) {
-  const pageSize = 1000
+async function fetchPaged(getQuery, pageSize = 1000) {
   let from = 0
   let allRows = []
 
@@ -520,7 +519,7 @@ export default function AsmPerformanceDashboard() {
     }
   }, [selectedUserId])
 
-  const computeAsmPerformance = useCallback(async (employeeId, pairs, fyStart, asmUser) => {
+  const computeAsmPerformance = useCallback(async (employeeId, pairs, fyStart, asmUser, exportMode = false) => {
     const exactEmployeeId = String(employeeId || '').trim()
     if (!exactEmployeeId) return null
 
@@ -760,9 +759,10 @@ export default function AsmPerformanceDashboard() {
       })
 
       const uniqueClaimAccounts = [...new Set(dmiClaims.map(claim => normalizeAccount(claim.account_number)).filter(Boolean))]
+      
       const enrollmentRows = []
       if (uniqueClaimAccounts.length > 0) {
-        const chunkSize = 200
+        const chunkSize = 80
         for (let index = 0; index < uniqueClaimAccounts.length; index += chunkSize) {
           const chunk = uniqueClaimAccounts.slice(index, index + chunkSize)
           const rows = await fetchPaged((from, to) =>
@@ -770,12 +770,13 @@ export default function AsmPerformanceDashboard() {
               .from('m_enrollment_details')
               .select('account_no, tier, created_at')
               .in('account_no', chunk)
-              .lt('created_at', historyDateWindow.endDateExclusive)
+              .gte('created_at', selectedDateWindow.startDate)
+              .lt('created_at', selectedDateWindow.endDateExclusive)
               .order('created_at', { ascending: false })
               .order('account_no', { ascending: true })
               .order('tier', { ascending: true })
               .range(from, to)
-          )
+          , 300)
           enrollmentRows.push(...rows)
         }
       }
@@ -792,11 +793,21 @@ export default function AsmPerformanceDashboard() {
         }
       })
 
+      const requiredFallbackAccounts = [...new Set(dmiClaims
+        .map(claim => {
+          const account = normalizeAccount(claim.account_number)
+          const parsed = getMonthYearFromValue(claim.status_date)
+          if (!account || !parsed) return ''
+          const key = `${account}_${parsed.month}_${parsed.year}`
+          return enrollTierByAccountMonth[key] ? '' : account
+        })
+        .filter(Boolean))]
+
       const influencerEnrollTier = {}
-      if (uniqueClaimAccounts.length > 0) {
-        const chunkSize = 200
-        for (let index = 0; index < uniqueClaimAccounts.length; index += chunkSize) {
-          const chunk = uniqueClaimAccounts.slice(index, index + chunkSize)
+      if (requiredFallbackAccounts.length > 0) {
+        const chunkSize = 100
+        for (let index = 0; index < requiredFallbackAccounts.length; index += chunkSize) {
+          const chunk = requiredFallbackAccounts.slice(index, index + chunkSize)
           const rows = await fetchPaged((from, to) =>
             supabase
               .from('influencer_enrollment_details')
@@ -806,7 +817,7 @@ export default function AsmPerformanceDashboard() {
               .order('influencer_id', { ascending: true })
               .order('influencer_tier', { ascending: true })
               .range(from, to)
-          )
+          , 300)
           rows.forEach(row => {
             const account = normalizeAccount(row.influencer_id)
             if (!account || !row.influencer_tier) return
@@ -1565,56 +1576,133 @@ export default function AsmPerformanceDashboard() {
     setAllUsersExportProgress({ done: 0, total: exportUsers.length })
 
     const rows = []
-    const failedUsers = []
+
+    const buildExportRow = (user, data) => ({
+      Employee: user.employee_id || '',
+      Employee_Name: user.full_name || '',
+      Branch_Name: user.branch_name || '',
+      DGO_Count: data.dgoTeam.length,
+      Achieved_Sheet: data.sheetData.approvedSummary || 0,
+      Sheet_Goal: data.sheetData.goal || 0,
+      Achieved_Sheet_Points: data.sheetData.points || 0,
+      Sheet_Points_Goal: data.sheetData.goal || 0,
+      Achieved_DMI_Points: data.dmiData.achievedPoints || 0,
+      Goal_DMI_Points: data.dmiGoal || 0,
+      Achieved_Behaviour_Points: data.behaviorData.achievedPoints || 0,
+      Goal_Behaviour_Points: data.behaviorData.goal || 0,
+      Total_Goal_Points: data.totals.goalPoints || 0,
+      Total_Achieved_Points: data.totals.achievedPoints || 0,
+      Overall_Achievement_Percentage: data.totals.percentage || 0,
+    })
+
+    const processUsersForExport = async (usersToProcess, {
+      forceRefresh = false,
+      updateProgress = false,
+      maxConcurrency = 4,
+      requestDelayMs = 0,
+      maxAttempts = 1,
+      attemptBackoffMs = 0,
+    } = {}) => {
+      const localRows = []
+      const localFailedUsers = []
+      const concurrency = Math.max(1, Math.min(maxConcurrency, usersToProcess.length))
+      let nextIndex = 0
+      let completedCount = 0
+
+      const worker = async () => {
+        while (true) {
+          const currentIndex = nextIndex
+          if (currentIndex >= usersToProcess.length) return
+          nextIndex += 1
+
+          const user = usersToProcess[currentIndex]
+          const cacheKey = forceRefresh
+            ? `asm_perf_export_v7_retry_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
+            : `asm_perf_export_v7_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
+
+          let success = false
+          let lastError = null
+
+          try {
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                const result = await cachedFetch(
+                  cacheKey,
+                  () => computeAsmPerformance(user.employee_id, monthYearPairs, selectedFYStart, user, true),
+                  TTL.SHORT,
+                  forceRefresh || attempt > 1
+                )
+
+                if (result?.data) {
+                  localRows.push(buildExportRow(user, result.data))
+                  success = true
+                  break
+                }
+
+                lastError = new Error('No data returned')
+              } catch (attemptError) {
+                lastError = attemptError
+              }
+
+              if (attempt < maxAttempts && attemptBackoffMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, attemptBackoffMs * attempt))
+              }
+            }
+
+            if (!success) {
+              localFailedUsers.push(user.employee_id)
+              console.warn(`Failed to fetch data for ${user.employee_id} after ${maxAttempts} attempt(s):`, lastError?.message || 'Unknown error')
+            }
+          } finally {
+            completedCount += 1
+            if (updateProgress) {
+              setAllUsersExportProgress({ done: completedCount, total: exportUsers.length })
+            }
+
+            if (requestDelayMs > 0) {
+              await new Promise(resolve => setTimeout(resolve, requestDelayMs))
+            }
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: concurrency }, () => worker()))
+      return { localRows, localFailedUsers }
+    }
 
     try {
-      // Process users sequentially with longer delays to avoid database timeouts
-      for (let index = 0; index < exportUsers.length; index++) {
-        const user = exportUsers[index]
-        
-        try {
-          console.log(`Fetching export data for ${user.employee_id} (${index + 1}/${exportUsers.length})...`)
-          
-          const cacheKey = `asm_perf_export_v6_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
-          const result = await cachedFetch(
-            cacheKey,
-            () => computeAsmPerformance(user.employee_id, monthYearPairs, selectedFYStart, user),
-            TTL.SHORT
-          )
+      const firstPass = await processUsersForExport(exportUsers, {
+        updateProgress: true,
+        maxConcurrency: 3,
+        maxAttempts: 1,
+      })
+      rows.push(...firstPass.localRows)
 
-          if (result?.data) {
-            rows.push({
-              Employee: user.employee_id || '',
-              Employee_Name: user.full_name || '',
-              Branch_Name: user.branch_name || '',
-              DGO_Count: result.data.dgoTeam.length,
-              Achieved_Sheet: result.data.sheetData.approvedSummary || 0,
-              Sheet_Goal: result.data.sheetData.goal || 0,
-              Achieved_Sheet_Points: result.data.sheetData.points || 0,
-              Sheet_Points_Goal: result.data.sheetData.goal || 0,
-              Achieved_DMI_Points: result.data.dmiData.achievedPoints || 0,
-              Goal_DMI_Points: result.data.dmiGoal || 0,
-              Achieved_Behaviour_Points: result.data.behaviorData.achievedPoints || 0,
-              Goal_Behaviour_Points: result.data.behaviorData.goal || 0,
-              Total_Goal_Points: result.data.totals.goalPoints || 0,
-              Total_Achieved_Points: result.data.totals.achievedPoints || 0,
-              Overall_Achievement_Percentage: result.data.totals.percentage || 0,
-            })
-          } else {
-            failedUsers.push(user.employee_id)
-            console.warn(`No data returned for ${user.employee_id}`)
-          }
-        } catch (userError) {
-          console.warn(`Failed to fetch data for ${user.employee_id}:`, userError.message)
-          failedUsers.push(user.employee_id)
-        }
+      let failedUsers = firstPass.localFailedUsers
+      if (failedUsers.length > 0) {
+        const retryUsers = exportUsers.filter(user => failedUsers.includes(user.employee_id))
+        const retryPass = await processUsersForExport(retryUsers, {
+          forceRefresh: true,
+          maxConcurrency: 1,
+          requestDelayMs: 300,
+          maxAttempts: 2,
+          attemptBackoffMs: 400,
+        })
+        rows.push(...retryPass.localRows)
+        failedUsers = retryPass.localFailedUsers
+      }
 
-        setAllUsersExportProgress({ done: index + 1, total: exportUsers.length })
-        
-        // Add 200ms delay between requests to give database time to recover
-        if (index < exportUsers.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200))
-        }
+      if (failedUsers.length > 0) {
+        const finalRetryUsers = exportUsers.filter(user => failedUsers.includes(user.employee_id))
+        const finalRetryPass = await processUsersForExport(finalRetryUsers, {
+          forceRefresh: true,
+          maxConcurrency: 1,
+          requestDelayMs: 600,
+          maxAttempts: 3,
+          attemptBackoffMs: 800,
+        })
+        rows.push(...finalRetryPass.localRows)
+        failedUsers = finalRetryPass.localFailedUsers
       }
 
       if (rows.length === 0) {
