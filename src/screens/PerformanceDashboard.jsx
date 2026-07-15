@@ -326,25 +326,29 @@ export default function PerformanceDashboard() {
       // 1. claim_date claims (for claimed sheets count)
       (startDate && endDateExclusive)
         ? fetchPaged((from, to) =>
-            supabase
+            applyAliasFilter(
+              supabase
               .from('influencer_claim_details')
               .select('claimed_qty_sheets, claim_date')
-              .eq('mapped_isr_code', employeeId)
               .gte('claim_date', startDate)
               .lt('claim_date', endDateExclusive)
-              .range(from, to)
+              .range(from, to),
+              'mapped_isr_code'
+            )
           )
         : Promise.resolve([]),
 
       // 2. status_date claims – full 2-FY window (covers sheet points + DMI history)
       fetchPaged((from, to) =>
-        supabase
+        applyAliasFilter(
+          supabase
           .from('influencer_claim_details')
           .select('account_number, approved_qty, product_code, status_date')
-          .eq('mapped_isr_code', employeeId)
           .gte('status_date', twoFyStart)
           .lt('status_date', twoFyEnd)
-          .range(from, to)
+          .range(from, to),
+          'mapped_isr_code'
+        )
       ),
 
       // 3. monthly sheet goal
@@ -438,7 +442,7 @@ export default function PerformanceDashboard() {
         ? fetchPaged((from, to) =>
             supabase
               .from('tier_upgrade_performance_report')
-              .select('mapped_isr, change_type, previous_tier, tier_change_date')
+              .select('mapped_isr, change_type, previous_tier, new_tier, tier_change_date')
               .ilike('mapped_isr', `${employeeId}%`)
               .gte('tier_change_date', startDate)
               .lt('tier_change_date', endDateExclusive)
@@ -712,6 +716,7 @@ export default function PerformanceDashboard() {
     const selectedActiveCandidates = []
     const newDmiSet = new Set()
     const activeDmiSet = new Set()
+    let approvedSheetsForAverage = 0
     let newDmiCount = 0
     sortedPairs.forEach(pair => {
       const selectedKey = monthYearKey(pair.month, pair.year)
@@ -719,6 +724,7 @@ export default function PerformanceDashboard() {
       accountMonthHistories.forEach(({ account, monthMap, firstQualifiedIdx }) => {
         const thisMonthSheets = toNumber(monthMap.get(selectedKey))
         if (thisMonthSheets < 10) return
+        approvedSheetsForAverage += thisMonthSheets
         const hasPriorActive = firstQualifiedIdx < selectedIdx
         if (hasPriorActive) {
           activeDmiSet.add(account)
@@ -799,10 +805,8 @@ export default function PerformanceDashboard() {
       }
     })
 
-    // Filter to exclude accounts with tier from influencer_enrollment_details ONLY
-    const selectedActiveEntries = resolvedActiveByEntry.filter(
-      entry => entry.tierSource !== 'influencer_enrollment_details'
-    )
+    // Keep fallback tier source in scope when monthly enrollment tier is unavailable.
+    const selectedActiveEntries = resolvedActiveByEntry
 
     const activePrimaryAccounts = [...new Set(selectedActiveEntries.map(e => e.account))]
     const allKnownTiers = ['Titanium', 'Gold', 'Silver', 'Bronze', 'Base Tier', 'Base']
@@ -822,11 +826,12 @@ export default function PerformanceDashboard() {
     // ── FINAL COMPUTATION (all in-memory from here) ───────────────────────────
     const tierPointsMap = {}
     ;(tierPoints || []).forEach(tp => {
-      tierPointsMap[String(tp.tier || '').trim()] = toNumber(tp.points_per_dmi)
+      const key = normalizeTierLabel(tp.tier)
+      tierPointsMap[key] = toNumber(tp.points_per_dmi)
     })
     const tierCountMap = {}
     selectedActiveEntries.forEach(entry => {
-      const tier = entry.tier || 'Unknown'
+      const tier = normalizeTierLabel(entry.tier) || 'Unknown'
       if (!tierCountMap[tier]) tierCountMap[tier] = 0
       tierCountMap[tier] += 1
     })
@@ -835,22 +840,42 @@ export default function PerformanceDashboard() {
       totalRawPoints += toNumber(count) * toNumber(tierPointsMap[tier])
     })
     const activeDmiCount = activePrimaryAccounts.length
-    const achievedSheetsInPeriod = filteredStatusDateClaims.reduce((sum, c) => sum + toNumber(c.approved_qty), 0)
-    // Use (activeDmiCount + newDmiCount) as denominator, same as mobile version
+    // Use qualified (>=10) account-month sheets to align with mobile DMI multiplier logic.
     const approvedDmisForAverage = activeDmiCount + newDmiCount
-    const averageSheetsPerDmi = approvedDmisForAverage > 0 ? parseFloat((achievedSheetsInPeriod / approvedDmisForAverage).toFixed(1)) : 0
+    const averageSheetsPerDmi = approvedDmisForAverage > 0 ? parseFloat((approvedSheetsForAverage / approvedDmisForAverage).toFixed(1)) : 0
     let rawPointsMultiplier = 1
     if (averageSheetsPerDmi < 15) rawPointsMultiplier = 0.15
     else if (averageSheetsPerDmi < 40) rawPointsMultiplier = 0.5
     const finalRawPoints = Math.round(totalRawPoints * rawPointsMultiplier)
     const newEnrolledPoints = newDmiCount * 10
-    const qualifyingUpgrades = tierUpgradeRows.filter(r =>
-      pairMatch(r.tier_change_date) &&
-      String(r.change_type || '').trim() === 'Tier Upgrade' &&
-      ['Bronze', 'Gold', 'Silver'].includes(String(r.previous_tier || '').trim())
-    )
+
+    const tierMap = {
+      'Base Tier': 1,
+      Bronze: 2,
+      Silver: 3,
+      Gold: 4,
+      Titanium: 5,
+    }
+    const normalizeTierForUpgrade = (value) => normalizeTierLabel(value)
+    const normalizeChangeType = (value) => String(value || '').trim().toLowerCase()
+    const qualifyingUpgrades = tierUpgradeRows.filter(r => {
+      if (!pairMatch(r.tier_change_date)) return false
+      if (normalizeChangeType(r.change_type) !== 'tier upgrade') return false
+
+      const previousTier = normalizeTierForUpgrade(r.previous_tier)
+      const newTier = normalizeTierForUpgrade(r.new_tier)
+      const previousTierValue = tierMap[previousTier]
+      const newTierValue = tierMap[newTier]
+      if (previousTierValue == null || newTierValue == null) return false
+
+      return ['Silver', 'Gold', 'Titanium'].includes(newTier) && newTierValue > previousTierValue
+    })
     const tierUpgradedDmiCount = qualifyingUpgrades.length
-    const dmiUpdatePoints = tierUpgradedDmiCount * 25
+    const dmiUpdatePoints = qualifyingUpgrades.reduce((sum, row) => {
+      const previousTierValue = tierMap[normalizeTierForUpgrade(row.previous_tier)]
+      const newTierValue = tierMap[normalizeTierForUpgrade(row.new_tier)]
+      return sum + ((newTierValue - previousTierValue) * 25)
+    }, 0)
     Object.keys(tierPointsMap).forEach((tier) => {
       if (tierCountMap[tier] == null) tierCountMap[tier] = 0
     })
@@ -875,7 +900,7 @@ export default function PerformanceDashboard() {
       newEnrolledPoints,
       dmiUpdatePoints,
       claimedDmiCount: new Set(
-        filteredStatusDateClaims.map(e => String(e.account_number || '').trim()).filter(Boolean)
+        filteredStatusDateClaims.map(e => normalizeAccount(e.account_number)).filter(Boolean)
       ).size,
       activeDmiCount,
       newDmiCount,
