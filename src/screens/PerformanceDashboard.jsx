@@ -685,32 +685,61 @@ export default function PerformanceDashboard() {
       brandBreakdown,
     }
 
-    // DMI history from the combined 2-FY claim data (allStatusDateClaims = full 2FY window)
-    const approvedSheetsByAccountMonth = new Map()
-    allStatusDateClaims.forEach(c => {
-      if (!c.account_number) return
+    // DMI classification uses selected-month claims + account-level history (mobile parity).
+    const selectedMonthlyTotals = {}
+    filteredStatusDateClaims.forEach(c => {
       const parsed = getMonthYearFromValue(c.status_date)
       if (!parsed) return
-      const key = monthYearKey(parsed.month, parsed.year)
-      if (!twoFyMonthKeySet.has(key)) return
+      const mk = monthYearKey(parsed.month, parsed.year)
+      if (!selectedPairKeySet.has(mk)) return
       const account = normalizeAccount(c.account_number)
       if (!account) return
-      if (!approvedSheetsByAccountMonth.has(account)) approvedSheetsByAccountMonth.set(account, new Map())
-      const monthMap = approvedSheetsByAccountMonth.get(account)
-      monthMap.set(key, (monthMap.get(key) || 0) + toNumber(c.approved_qty))
+      const key = `${account}_${mk}`
+      selectedMonthlyTotals[key] = (selectedMonthlyTotals[key] || 0) + toNumber(c.approved_qty)
     })
 
-    const accountMonthHistories = []
-    approvedSheetsByAccountMonth.forEach((monthMap, account) => {
-      let firstQualifiedIdx = Infinity
-      monthMap.forEach((qty, mk) => {
-        if (toNumber(qty) < 10 || !twoFyMonthKeySet.has(mk)) return
-        const [year, month] = mk.split('-').map(Number)
-        const idx = monthYearIndex(month, year)
-        if (idx < firstQualifiedIdx) firstQualifiedIdx = idx
+    const activeAccountMonthRows = Object.entries(selectedMonthlyTotals)
+      .filter(([, qty]) => toNumber(qty) >= 10)
+      .map(([key, qty]) => {
+        const [account, yearText, monthText] = key.split('_')
+        return {
+          account,
+          year: Number(yearText),
+          month: Number(monthText),
+          totalSheets: toNumber(qty),
+        }
       })
-      accountMonthHistories.push({ account, monthMap, firstQualifiedIdx })
-    })
+
+    const activeAccountsForHistory = [...new Set(activeAccountMonthRows.map(row => row.account))]
+    const approvedSheetsByAccountMonth = new Map()
+
+    if (activeAccountsForHistory.length > 0) {
+      const CHUNK = 200
+      for (let i = 0; i < activeAccountsForHistory.length; i += CHUNK) {
+        const chunk = activeAccountsForHistory.slice(i, i + CHUNK)
+        const historyRows = await fetchPaged((from, to) =>
+          supabase
+            .from('influencer_claim_details')
+            .select('account_number, approved_qty, status_date, claim_date')
+            .in('account_number', chunk)
+            .order('status_date', { ascending: false })
+            .order('account_number', { ascending: true })
+            .range(from, to)
+        )
+
+        historyRows.forEach(row => {
+          const account = normalizeAccount(row.account_number)
+          if (!account) return
+          const parsed = getMonthYearFromValue(row.status_date || row.claim_date)
+          if (!parsed) return
+          const mk = monthYearKey(parsed.month, parsed.year)
+          if (!twoFyMonthKeySet.has(mk)) return
+          if (!approvedSheetsByAccountMonth.has(account)) approvedSheetsByAccountMonth.set(account, new Map())
+          const monthMap = approvedSheetsByAccountMonth.get(account)
+          monthMap.set(mk, (monthMap.get(mk) || 0) + toNumber(row.approved_qty))
+        })
+      }
+    }
 
     // DMI new vs active classification
     const selectedActiveCandidates = []
@@ -718,22 +747,27 @@ export default function PerformanceDashboard() {
     const activeDmiSet = new Set()
     let approvedSheetsForAverage = 0
     let newDmiCount = 0
-    sortedPairs.forEach(pair => {
-      const selectedKey = monthYearKey(pair.month, pair.year)
-      const selectedIdx = monthYearIndex(pair.month, pair.year)
-      accountMonthHistories.forEach(({ account, monthMap, firstQualifiedIdx }) => {
-        const thisMonthSheets = toNumber(monthMap.get(selectedKey))
-        if (thisMonthSheets < 10) return
-        approvedSheetsForAverage += thisMonthSheets
-        const hasPriorActive = firstQualifiedIdx < selectedIdx
-        if (hasPriorActive) {
-          activeDmiSet.add(account)
-          selectedActiveCandidates.push({ account, month: pair.month, year: pair.year })
-        } else {
-          newDmiSet.add(account)
-          newDmiCount += 1
-        }
+
+    activeAccountMonthRows.forEach(({ account, month, year, totalSheets }) => {
+      const selectedIdx = monthYearIndex(month, year)
+      approvedSheetsForAverage += totalSheets
+
+      const monthMap = approvedSheetsByAccountMonth.get(account) || new Map()
+      let hasPriorActive = false
+      monthMap.forEach((qty, mk) => {
+        if (hasPriorActive || toNumber(qty) < 10) return
+        const [mkYear, mkMonth] = mk.split('-').map(Number)
+        const idx = monthYearIndex(mkMonth, mkYear)
+        if (idx < selectedIdx) hasPriorActive = true
       })
+
+      if (hasPriorActive) {
+        activeDmiSet.add(account)
+        selectedActiveCandidates.push({ account, month, year })
+      } else {
+        newDmiSet.add(account)
+        newDmiCount += 1
+      }
     })
 
     // Build tier map from per-month m_enrollment_details
@@ -1146,7 +1180,7 @@ export default function PerformanceDashboard() {
         ? 'all'
         : [...selectedMonths].sort((a, b) => Number(a) - Number(b)).join('-')
 
-      const cacheKey = `perf_detail_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
+      const cacheKey = `perf_detail_v2_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
 
       const { data, fromCache } = await cachedFetch(
         cacheKey,
@@ -1265,7 +1299,7 @@ export default function PerformanceDashboard() {
         const batchRows = await Promise.all(batch.map(async (user) => {
           try {
             const { data } = await cachedFetch(
-              `perf_detail_export_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
+              `perf_detail_export_v2_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
               () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
               TTL.SHORT
             )
