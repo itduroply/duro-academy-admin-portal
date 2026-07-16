@@ -1287,6 +1287,7 @@ export default function PerformanceDashboard() {
     if (exportUsers.length === 0) return
 
     const rows = []
+    const failedUsers = []
     const BATCH_SIZE = 4
     let done = 0
 
@@ -1296,7 +1297,7 @@ export default function PerformanceDashboard() {
     try {
       for (let i = 0; i < exportUsers.length; i += BATCH_SIZE) {
         const batch = exportUsers.slice(i, i + BATCH_SIZE)
-        const batchRows = await Promise.all(batch.map(async (user) => {
+        const batchResults = await Promise.all(batch.map(async (user) => {
           try {
             const { data } = await cachedFetch(
               `perf_detail_export_v2_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
@@ -1304,9 +1305,59 @@ export default function PerformanceDashboard() {
               TTL.SHORT
             )
 
-            if (!data) return null
+            if (!data) {
+              return { ok: false, user }
+            }
 
             return {
+              ok: true,
+              user,
+              row: {
+                Employee: user.employee_id || '',
+                Employee_Name: user.full_name || '',
+                Branch_Name: user.branch_name || '',
+                Achieved_Sheet: data.sheetData?.approvedSummary || 0,
+                Sheet_Go: data.sheetData?.goal || 0,
+                Achieved_Sheet_Poin: data.sheetData?.points || 0,
+                Sheet_Points_Go: data.sheetData?.goal || 0,
+                Achieved_DMI_Poi: data.dmiData?.achievedPoints || 0,
+                Goal_DMI_Poi: data.dmiGoal || 0,
+                Achieved_Behaviour_Poin: data.behaviorData?.achievedPoints || 0,
+                Goal_Behaviour_Poi: data.behaviorData?.goal || 0,
+                Total_Goal_Poi: data.totals?.goalPoints || 0,
+                Total_Achieved_Poin: data.totals?.achievedPoints || 0,
+                Overall_Achievement_Percentage: data.totals?.percentage || 0,
+              },
+            }
+          } catch (error) {
+            console.error('All users export error for', user.employee_id, error)
+            return { ok: false, user }
+          }
+        }))
+
+        batchResults.forEach(result => {
+          if (result?.ok && result.row) rows.push(result.row)
+          else if (result?.user?.employee_id) failedUsers.push(result.user.employee_id)
+        })
+
+        done += batch.length
+        setAllUsersExportProgress({ done, total: exportUsers.length })
+      }
+
+      if (failedUsers.length > 0) {
+        const retryUsers = exportUsers.filter(user => failedUsers.includes(user.employee_id))
+        for (const user of retryUsers) {
+          try {
+            const { data } = await cachedFetch(
+              `perf_detail_export_v2_retry_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
+              () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
+              TTL.SHORT,
+              true
+            )
+
+            if (!data) continue
+
+            rows.push({
               Employee: user.employee_id || '',
               Employee_Name: user.full_name || '',
               Branch_Name: user.branch_name || '',
@@ -1321,16 +1372,16 @@ export default function PerformanceDashboard() {
               Total_Goal_Poi: data.totals?.goalPoints || 0,
               Total_Achieved_Poin: data.totals?.achievedPoints || 0,
               Overall_Achievement_Percentage: data.totals?.percentage || 0,
-            }
+            })
           } catch (error) {
-            console.error('All users export error for', user.employee_id, error)
-            return null
+            console.error('All users export retry error for', user.employee_id, error)
           }
-        }))
+        }
+      }
 
-        rows.push(...batchRows.filter(Boolean))
-        done += batch.length
-        setAllUsersExportProgress({ done, total: exportUsers.length })
+      if (rows.length === 0) {
+        alert('No report data could be generated for selected users. Please refresh and try again.')
+        return
       }
 
       const workbook = XLSX.utils.book_new()
