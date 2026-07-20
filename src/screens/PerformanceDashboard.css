@@ -225,6 +225,57 @@
   background: #eef2ff;
 }
 
+.apdr-user-row.inactive-user {
+  border-color: #fca5a5;
+  background: #fff5f5;
+}
+
+.apdr-user-row.inactive-user:hover {
+  border-color: #f87171;
+  background: #fee2e2;
+}
+
+.apdr-user-row.inactive-user.selected {
+  border-color: #ef4444;
+  background: #fee2e2;
+}
+
+.apdr-user-row.inactive-user .apdr-user-name {
+  color: #b91c1c;
+}
+
+.apdr-user-row.inactive-user .apdr-user-sub {
+  color: #ef4444;
+}
+
+.apdr-user-leaving {
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: #b91c1c;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.apdr-user-leaving i {
+  font-size: 0.65rem;
+}
+
+.apdr-inactive-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #fff;
+  background: #ef4444;
+  border-radius: 999px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .apdr-user-name {
   font-size: 0.9rem;
   font-weight: 700;

@@ -255,7 +255,7 @@ export default function PerformanceDashboard() {
           const [assignedRes, branchesRes] = await Promise.all([
             supabase
               .from('user_performance_dashboard')
-              .select('users:user_id(id, full_name, email, employee_id, department_id, branch_id)')
+              .select('users:user_id(id, full_name, email, employee_id, department_id, branch_id, status, leaving_date)')
               .contains('access_type', ['DGO'])
               .order('assigned_at', { ascending: false }),
             supabase
@@ -273,6 +273,8 @@ export default function PerformanceDashboard() {
               ...row.users,
               branch_id: row.users.branch_id,
               branch_name: branchMap.get(row.users.branch_id) || '',
+              status: row.users.status,
+              leaving_date: row.users.leaving_date,
             } : null)
             .filter(Boolean)
 
@@ -701,7 +703,12 @@ export default function PerformanceDashboard() {
     const activeAccountMonthRows = Object.entries(selectedMonthlyTotals)
       .filter(([, qty]) => toNumber(qty) >= 10)
       .map(([key, qty]) => {
-        const [account, yearText, monthText] = key.split('_')
+        // Key format: "ACCOUNT_YEAR-MONTH" (e.g. "12345_2025-6")
+        // Split on last underscore to handle account numbers that may contain underscores
+        const lastUnderscore = key.lastIndexOf('_')
+        const account = key.substring(0, lastUnderscore)
+        const mk = key.substring(lastUnderscore + 1) // "2025-6"
+        const [yearText, monthText] = mk.split('-')
         return {
           account,
           year: Number(yearText),
@@ -1039,18 +1046,11 @@ export default function PerformanceDashboard() {
       if (!d) return
       newSiteSet.add(`${v.lead_code}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`)
     })
+    // Existing Site Visits: Count all lead tasks unique per lead per day from lead_task_reports
     const existingSiteSet = new Set()
     filteredLeadTasks.forEach((v, idx) => {
       const d = parseDateSafe(v.task_created_on)
       if (!d) return
-      const taskDateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      if (v.lead_id != null && v.lead_id !== '') {
-        const meta = leadCreatedMetaMap.get(v.lead_id)
-        if (meta) {
-          const hasDifferentDate = [...meta.dates].some(date => date !== taskDateKey)
-          if (!(meta.hasNullDate || hasDifferentDate)) return
-        }
-      }
       if (v.lead_id) {
         existingSiteSet.add(`${v.lead_id}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`)
       } else {
@@ -1119,6 +1119,7 @@ export default function PerformanceDashboard() {
           value: Math.round(sgtPct),
           visitGoal: sgtData.visitGoal,
           achievedVisits: sgtAchievedCapped,
+          actualAchievedVisits: sgtData.achievedVisits,
           sgtTierBreakdown: sgtData.sgtTierBreakdown,
         },
         {
@@ -1127,6 +1128,7 @@ export default function PerformanceDashboard() {
           value: Math.round(dmiSitePct),
           visitGoal: dmiSiteData.visitGoal,
           achievedVisits: dmiSiteAchievedCapped,
+          actualAchievedVisits: dmiSiteData.achievedVisits,
           dmiVisits: dmiSiteData.dmiVisits,
           newDmiVisits: dmiSiteData.newDmiVisits,
           existingDmiVisits: dmiSiteData.existingDmiVisits,
@@ -1140,6 +1142,7 @@ export default function PerformanceDashboard() {
           value: Math.round(warPct),
           assigned: warTaskData.assigned,
           completed: warCompletedCapped,
+          actualCompleted: warTaskData.completed,
         },
       ],
     }
@@ -1288,7 +1291,8 @@ export default function PerformanceDashboard() {
 
     const rows = []
     const failedUsers = []
-    const BATCH_SIZE = 4
+    const BATCH_SIZE = 2 // Ultra-conservative: 2 concurrent requests (was 3)
+    const BATCH_DELAY = 1500 // 1.5 seconds between batches (was 1000ms)
     let done = 0
 
     setAllUsersExporting(true)
@@ -1297,42 +1301,56 @@ export default function PerformanceDashboard() {
     try {
       for (let i = 0; i < exportUsers.length; i += BATCH_SIZE) {
         const batch = exportUsers.slice(i, i + BATCH_SIZE)
+        
         const batchResults = await Promise.all(batch.map(async (user) => {
-          try {
-            const { data } = await cachedFetch(
-              `perf_detail_export_v2_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
-              () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
-              TTL.SHORT
-            )
+          let retries = 3 // Increased from 2 to 3 attempts
+          let lastError = null
+          let waitTime = 800 // Start with 800ms exponential backoff (was 500ms)
 
-            if (!data) {
-              return { ok: false, user }
-            }
+          while (retries > 0) {
+            try {
+              const { data } = await cachedFetch(
+                `perf_export_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
+                () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
+                TTL.MEDIUM
+              )
 
-            return {
-              ok: true,
-              user,
-              row: {
-                Employee: user.employee_id || '',
-                Employee_Name: user.full_name || '',
-                Branch_Name: user.branch_name || '',
-                Achieved_Sheet: data.sheetData?.approvedSummary || 0,
-                Sheet_Go: data.sheetData?.goal || 0,
-                Achieved_Sheet_Poin: data.sheetData?.points || 0,
-                Sheet_Points_Go: data.sheetData?.goal || 0,
-                Achieved_DMI_Poi: data.dmiData?.achievedPoints || 0,
-                Goal_DMI_Poi: data.dmiGoal || 0,
-                Achieved_Behaviour_Poin: data.behaviorData?.achievedPoints || 0,
-                Goal_Behaviour_Poi: data.behaviorData?.goal || 0,
-                Total_Goal_Poi: data.totals?.goalPoints || 0,
-                Total_Achieved_Poin: data.totals?.achievedPoints || 0,
-                Overall_Achievement_Percentage: data.totals?.percentage || 0,
-              },
+              if (!data) {
+                return { ok: false, user }
+              }
+
+              return {
+                ok: true,
+                user,
+                row: {
+                  Employee: user.employee_id || '',
+                  Employee_Name: user.full_name || '',
+                  Branch_Name: user.branch_name || '',
+                  Achieved_Sheet: data.sheetData?.approvedSummary || 0,
+                  Sheet_Goal: data.sheetData?.goal || 0,
+                  Sheet_Points: data.sheetData?.points || 0,
+                  Achieved_DMI: data.dmiData?.achievedPoints || 0,
+                  DMI_Goal: data.dmiGoal || 0,
+                  Achieved_Behavior: data.behaviorData?.achievedPoints || 0,
+                  Behavior_Goal: data.behaviorData?.goal || 0,
+                  Total_Goal: data.totals?.goalPoints || 0,
+                  Total_Achieved: data.totals?.achievedPoints || 0,
+                  Achievement_Percentage: data.totals?.percentage || 0,
+                },
+              }
+            } catch (error) {
+              lastError = error
+              retries -= 1
+              if (retries > 0) {
+                // Exponential backoff: 500ms → 1000ms → 2000ms
+                await new Promise(resolve => setTimeout(resolve, waitTime))
+                waitTime *= 2
+              }
             }
-          } catch (error) {
-            console.error('All users export error for', user.employee_id, error)
-            return { ok: false, user }
           }
+
+          console.error('All users export failed for', user.employee_id, lastError)
+          return { ok: false, user }
         }))
 
         batchResults.forEach(result => {
@@ -1342,40 +1360,10 @@ export default function PerformanceDashboard() {
 
         done += batch.length
         setAllUsersExportProgress({ done, total: exportUsers.length })
-      }
 
-      if (failedUsers.length > 0) {
-        const retryUsers = exportUsers.filter(user => failedUsers.includes(user.employee_id))
-        for (const user of retryUsers) {
-          try {
-            const { data } = await cachedFetch(
-              `perf_detail_export_v2_retry_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
-              () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
-              TTL.SHORT,
-              true
-            )
-
-            if (!data) continue
-
-            rows.push({
-              Employee: user.employee_id || '',
-              Employee_Name: user.full_name || '',
-              Branch_Name: user.branch_name || '',
-              Achieved_Sheet: data.sheetData?.approvedSummary || 0,
-              Sheet_Go: data.sheetData?.goal || 0,
-              Achieved_Sheet_Poin: data.sheetData?.points || 0,
-              Sheet_Points_Go: data.sheetData?.goal || 0,
-              Achieved_DMI_Poi: data.dmiData?.achievedPoints || 0,
-              Goal_DMI_Poi: data.dmiGoal || 0,
-              Achieved_Behaviour_Poin: data.behaviorData?.achievedPoints || 0,
-              Goal_Behaviour_Poi: data.behaviorData?.goal || 0,
-              Total_Goal_Poi: data.totals?.goalPoints || 0,
-              Total_Achieved_Poin: data.totals?.achievedPoints || 0,
-              Overall_Achievement_Percentage: data.totals?.percentage || 0,
-            })
-          } catch (error) {
-            console.error('All users export retry error for', user.employee_id, error)
-          }
+        // Add delay between batches to prevent connection pool exhaustion
+        if (i + BATCH_SIZE < exportUsers.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY))
         }
       }
 
@@ -1387,6 +1375,13 @@ export default function PerformanceDashboard() {
       const workbook = XLSX.utils.book_new()
       const worksheet = XLSX.utils.json_to_sheet(rows)
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Performance Report')
+      
+      if (failedUsers.length > 0) {
+        const failedSheet = XLSX.utils.json_to_sheet(failedUsers.map(id => ({ Employee_ID: id, Status: 'Export Failed' })))
+        XLSX.utils.book_append_sheet(workbook, failedSheet, 'Failed')
+        alert(`⚠️ Export completed with ${failedUsers.length} failures. Check "Failed" sheet for details.`)
+      }
+      
       XLSX.writeFile(workbook, fileName)
     } finally {
       setAllUsersExporting(false)
@@ -1592,16 +1587,28 @@ export default function PerformanceDashboard() {
             <div className="apdr-empty">No users found.</div>
           ) : (
             <div className="apdr-user-list">
-              {filteredUsers.map(u => (
-                <button
-                  key={u.id}
-                  className={`apdr-user-row ${selectedUserId === u.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedUserId(u.id)}
-                >
-                  <div className="apdr-user-name">{u.full_name || 'Unknown User'}</div>
-                  <div className="apdr-user-sub">{u.employee_id || '-'} | {u.email || '-'}</div>
-                </button>
-              ))}
+              {filteredUsers.map(u => {
+                const isInactive = String(u.status || '').trim().toLowerCase() !== 'active'
+                return (
+                  <button
+                    key={u.id}
+                    className={`apdr-user-row ${selectedUserId === u.id ? 'selected' : ''} ${isInactive ? 'inactive-user' : ''}`}
+                    onClick={() => setSelectedUserId(u.id)}
+                  >
+                    <div className="apdr-user-name">
+                      {u.full_name || 'Unknown User'}
+                      {isInactive && <span className="apdr-inactive-badge">Inactive</span>}
+                    </div>
+                    <div className="apdr-user-sub">{u.employee_id || '-'} | {u.email || '-'}</div>
+                    {isInactive && u.leaving_date && (
+                      <div className="apdr-user-leaving">
+                        <i className="fa-solid fa-calendar-xmark"></i>
+                        Last Working Day: {new Date(u.leaving_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
         </section>
@@ -1730,7 +1737,7 @@ export default function PerformanceDashboard() {
                             <td>{row.label}</td>
                             <td>{row.weightage}%</td>
                             <td>{toNumber(row.value).toLocaleString()}%</td>
-                            <td>{toNumber(row.achievedVisits ?? row.completed).toLocaleString()}</td>
+                            <td>{toNumber(row.actualAchievedVisits ?? row.achievedVisits ?? row.completed).toLocaleString()}</td>
                             <td>{toNumber(row.visitGoal ?? row.assigned).toLocaleString()}</td>
                           </tr>
                         ))}
@@ -1781,7 +1788,7 @@ export default function PerformanceDashboard() {
                                 <td><strong>Total Visits</strong></td>
                                 <td>{(toNumber(row.newDmiVisits) + toNumber(row.newSiteVisits)).toLocaleString()}</td>
                                 <td>{(toNumber(row.existingDmiVisits) + toNumber(row.existingSiteVisits)).toLocaleString()}</td>
-                                <td><strong>{toNumber(row.achievedVisits).toLocaleString()}</strong></td>
+                                <td><strong>{(toNumber(row.newDmiVisits) + toNumber(row.newSiteVisits) + toNumber(row.existingDmiVisits) + toNumber(row.existingSiteVisits)).toLocaleString()}</strong></td>
                               </tr>
                             </tbody>
                           </table>
