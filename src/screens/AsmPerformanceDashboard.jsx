@@ -737,19 +737,45 @@ export default function AsmPerformanceDashboard() {
         }
       }
 
+      // Step 1: Fetch current period claims by mapped_isr_code
       if (claimCodeExact) {
         await fetchChunk([], claimCodeExact, selectedDateWindow, allDmiClaims)
-        await fetchChunk([], claimCodeExact, historyDateWindow, allDmiClaimsHistory)
         if (!disableAliasFallback && allDmiClaims.length === 0) {
           for (const chunk of codeChunks) await fetchChunk(chunk, null, selectedDateWindow, allDmiClaims)
-        }
-        if (!disableAliasFallback && allDmiClaimsHistory.length === 0) {
-          for (const chunk of codeChunks) await fetchChunk(chunk, null, historyDateWindow, allDmiClaimsHistory)
         }
       } else {
         for (const chunk of codeChunks) {
           await fetchChunk(chunk, null, selectedDateWindow, allDmiClaims)
-          await fetchChunk(chunk, null, historyDateWindow, allDmiClaimsHistory)
+        }
+      }
+
+      // Step 2: Fetch history by account_number (matches PerformanceDashboard logic).
+      // Accounts can have prior activity under ANY ISR code, not just this one.
+      // Fetching by ISR code would miss prior history from other ISRs causing accounts
+      // to be misclassified as "New DMI" instead of "Active DMI".
+      const currentPeriodAccounts = [...new Set(allDmiClaims.map(c => normalizeAccount(c.account_number)).filter(Boolean))]
+      if (currentPeriodAccounts.length > 0) {
+        const accountHistoryChunkSize = 200
+        for (let i = 0; i < currentPeriodAccounts.length; i += accountHistoryChunkSize) {
+          const chunk = currentPeriodAccounts.slice(i, i + accountHistoryChunkSize)
+          let from = 0
+          while (true) {
+            let query = supabase
+              .from('influencer_claim_details')
+              .select('account_number, approved_qty, status_date')
+              .in('account_number', chunk)
+              .order('status_date', { ascending: false })
+              .order('account_number', { ascending: true })
+              .range(from, from + pageSize - 1)
+            if (historyDateWindow.startDate && historyDateWindow.endDateExclusive) {
+              query = query.gte('status_date', historyDateWindow.startDate).lt('status_date', historyDateWindow.endDateExclusive)
+            }
+            const { data, error } = await query
+            if (error || !data || data.length === 0) break
+            allDmiClaimsHistory.push(...data)
+            if (data.length < pageSize) break
+            from += pageSize
+          }
         }
       }
 
@@ -1302,6 +1328,7 @@ export default function AsmPerformanceDashboard() {
         }
       }
 
+      // Existing Site Visits: Count all lead tasks unique per lead per day from lead_task_reports
       const existingSiteSet = new Set()
       leadTaskRows.forEach((row, index) => {
         const date = parseDateSafe(row.task_created_on)
@@ -1309,14 +1336,6 @@ export default function AsmPerformanceDashboard() {
         const parsed = getMonthYearFromValue(row.task_created_on)
         if (!parsed || !selectedMonthKeySet.has(`${parsed.month}_${parsed.year}`)) return
         const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-
-        if (row.lead_id) {
-          const meta = leadCreatedMetaMap.get(String(row.lead_id).trim())
-          if (meta) {
-            const hasDifferentDate = [...meta.dates].some(value => value !== dateKey)
-            if (!(meta.hasNullDate || hasDifferentDate)) return
-          }
-        }
 
         if (row.lead_id) existingSiteSet.add(visitKey(row.lead_id, date))
         else existingSiteSet.add(`null-lead-${index}_${dateKey}`)
@@ -2318,7 +2337,7 @@ export default function AsmPerformanceDashboard() {
                               <td><strong>Total</strong></td>
                               <td>{(toNumber(row.newDmiVisits) + toNumber(row.newSiteVisits)).toLocaleString()}</td>
                               <td>{(toNumber(row.existingDmiVisits) + toNumber(row.existingSiteVisits)).toLocaleString()}</td>
-                              <td><strong>{toNumber(row.achievedVisits).toLocaleString()}</strong></td>
+                              <td><strong>{(toNumber(row.newDmiVisits) + toNumber(row.newSiteVisits) + toNumber(row.existingDmiVisits) + toNumber(row.existingSiteVisits)).toLocaleString()}</strong></td>
                             </tr>
                           </tbody>
                         </table>
