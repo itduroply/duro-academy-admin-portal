@@ -1032,6 +1032,8 @@ export default function AsmPerformanceDashboard() {
       const exactCode = String(strictEmployeeCode || '').trim()
       const normalizedCodes = [...new Set((codes || []).map(code => String(code || '').trim()).filter(Boolean))]
 
+      // No date restriction on enrollment — fetch all enrollments to get latest active status
+      // (matches mobile app: active S/G/T accounts without date window)
       const allEnrollments = (exactCode || normalizedCodes.length > 0)
         ? await fetchPaged((from, to) =>
             {
@@ -1039,8 +1041,6 @@ export default function AsmPerformanceDashboard() {
               .from('m_enrollment_details')
               .select('account_no, tier, is_active, created_at')
               .in('tier', ['Silver', 'Gold', 'Titanium'])
-              .gte('created_at', historyDateWindow.startDate)
-              .lt('created_at', historyDateWindow.endDateExclusive)
               .order('created_at', { ascending: false, nullsFirst: false })
               .order('account_no', { ascending: true })
               .order('tier', { ascending: true })
@@ -1066,15 +1066,14 @@ export default function AsmPerformanceDashboard() {
         activeTierMap[account] = info.tier
       })
 
+      // ASM rule: 1 visit per month per active S/G/T account regardless of tier
+      // (matches mobile app: all tiers have 1 visit/month goal)
       const tierMonthlyGoalMap = { Silver: 0, Gold: 0, Titanium: 0 }
       let monthlyVisitGoal = 0
       Object.values(activeTierMap).forEach(tier => {
-        if (tier === 'Silver') {
-          tierMonthlyGoalMap.Silver += 1
+        if (tierMonthlyGoalMap[tier] !== undefined) {
+          tierMonthlyGoalMap[tier] += 1
           monthlyVisitGoal += 1
-        } else if (tier === 'Gold' || tier === 'Titanium') {
-          tierMonthlyGoalMap[tier] += 2
-          monthlyVisitGoal += 2
         }
       })
 
@@ -1123,11 +1122,11 @@ export default function AsmPerformanceDashboard() {
         monthlyVisitCounts[key].count += 1
       })
 
+      // Cap at 1 visit per influencer per month for ALL tiers (matches mobile app)
       let totalAchievedVisits = 0
       const tierAchievedMap = { Silver: 0, Gold: 0, Titanium: 0 }
       Object.values(monthlyVisitCounts).forEach(({ count, tier }) => {
-        const cap = tier === 'Silver' ? 1 : 2
-        const capped = Math.min(count, cap)
+        const capped = Math.min(count, 1)
         totalAchievedVisits += capped
         if (tierAchievedMap[tier] !== undefined) tierAchievedMap[tier] += capped
       })
