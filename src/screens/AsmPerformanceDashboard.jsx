@@ -1033,8 +1033,12 @@ export default function AsmPerformanceDashboard() {
       const normalizedCodes = [...new Set((codes || []).map(code => String(code || '').trim()).filter(Boolean))]
 
       // No date restriction on enrollment — fetch all enrollments to get latest active status
-      // (matches mobile app: active S/G/T accounts without date window)
-      const allEnrollments = (exactCode || normalizedCodes.length > 0)
+      // Use ilike prefix OR filter (same as mobile app) instead of exact .in() to handle
+      // case/format variations in mapped_isr column values
+      const isrOrFilter = exactCode
+        ? ''
+        : buildPrefixOrFilter('mapped_isr', normalizedCodes)
+      const allEnrollments = (exactCode || isrOrFilter)
         ? await fetchPaged((from, to) =>
             {
               let query = supabase
@@ -1046,7 +1050,7 @@ export default function AsmPerformanceDashboard() {
               .order('tier', { ascending: true })
               .range(from, to)
               if (exactCode) query = query.ilike('mapped_isr', `${exactCode}%`)
-              else query = query.in('mapped_isr', normalizedCodes)
+              else query = query.or(isrOrFilter)
               return query
             }
           )
@@ -1077,7 +1081,11 @@ export default function AsmPerformanceDashboard() {
         }
       })
 
-      const allVisits = (exactCode || normalizedCodes.length > 0)
+      // Use prefix OR filter for visit reports too (matches mobile app approach)
+      const isrCodeOrFilter = exactCode
+        ? ''
+        : buildPrefixOrFilter('mapped_isr_code', normalizedCodes)
+      const allVisits = (exactCode || isrCodeOrFilter)
         ? await fetchPaged((from, to) => {
             let query = supabase
               .from('influencer_visit_reports')
@@ -1090,7 +1098,7 @@ export default function AsmPerformanceDashboard() {
               query = query.gte('visit_date', selectedDateWindow.startDate).lt('visit_date', selectedDateWindow.endDateExclusive)
             }
             if (exactCode) query = query.ilike('mapped_isr_code', `${exactCode}%`)
-            else query = query.in('mapped_isr_code', normalizedCodes)
+            else query = query.or(isrCodeOrFilter)
             return query
           })
         : []
