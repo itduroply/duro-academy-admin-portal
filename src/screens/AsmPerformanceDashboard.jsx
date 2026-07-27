@@ -440,10 +440,20 @@ export default function AsmPerformanceDashboard() {
   }, [selectedFYStart, selectedMonths, availableMonths])
 
   const branchOptions = useMemo(() => {
-    const values = [...new Set(users.map(user => String(user.branch_name || '').trim()).filter(Boolean))]
+    let filteredUsers = users
+    
+    // If user is admin, only show branches they have access to
+    if (role === 'admin') {
+      const allowedBranchSet = new Set(adminAllowedBranchIds.length > 0 ? adminAllowedBranchIds : (adminUserBranchId ? [adminUserBranchId] : []))
+      filteredUsers = users.filter(user => allowedBranchSet.has(user.branch_id))
+    }
+    
+    const values = [...new Set(filteredUsers.map(user => String(user.branch_name || '').trim()).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
-    return ['All Branches', ...values]
-  }, [users])
+    
+    // Only add "All Branches" option for super_admin, not for admin
+    return role === 'super_admin' ? ['All Branches', ...values] : values
+  }, [users, role, adminUserBranchId, adminAllowedBranchIds])
 
   const adminAllowedBranchSet = useMemo(() => new Set(adminAllowedBranchIds), [adminAllowedBranchIds])
 
@@ -1590,7 +1600,7 @@ export default function AsmPerformanceDashboard() {
 
       const quarterKey = selectedQuarters.includes('All') ? 'all' : [...selectedQuarters].sort().join('-')
       const monthKey = selectedMonths.includes('All') ? 'all' : [...selectedMonths].sort((a, b) => Number(a) - Number(b)).join('-')
-      const cacheKey = `asm_perf_detail_v8_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}_${teamFilter}`
+      const cacheKey = `asm_perf_detail_v11_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}_${teamFilter}`
 
       const result = await cachedFetch(
         cacheKey,
@@ -1860,6 +1870,13 @@ export default function AsmPerformanceDashboard() {
     }
   }, [role, authUser?.id])
 
+  // Auto-select first available branch for admin users
+  useEffect(() => {
+    if (role === 'admin' && !selectedBranch && branchOptions.length > 0) {
+      setSelectedBranch(branchOptions[0])
+    }
+  }, [role, branchOptions, selectedBranch])
+
   useEffect(() => {
     setTeamFilter('Team')
   }, [selectedUserId])
@@ -1939,14 +1956,10 @@ export default function AsmPerformanceDashboard() {
         </div>
 
         <div className="apdr-filter-group apdr-filter-action">
-          <label>
-            Branch
-            {role === 'admin' && <span title="Your branch cannot be changed"> (Read-only)</span>}
-          </label>
+          <label>Branch</label>
           <select
             value={selectedBranch}
-            onChange={(event) => role !== 'admin' && setSelectedBranch(event.target.value)}
-            disabled={role === 'admin'}
+            onChange={(event) => setSelectedBranch(event.target.value)}
           >
             {branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}
           </select>

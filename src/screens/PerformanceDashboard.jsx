@@ -215,10 +215,20 @@ export default function PerformanceDashboard() {
   }, [selectedFYStart, availableMonths, selectedMonths])
 
   const branchOptions = useMemo(() => {
-    const values = [...new Set(users.map(u => String(u.branch_name || '').trim()).filter(Boolean))]
+    let filteredUsers = users
+    
+    // If user is admin, only show branches they have access to
+    if (role === 'admin') {
+      const allowedBranchSet = new Set(adminAllowedBranchIds.length > 0 ? adminAllowedBranchIds : (adminUserBranchId ? [adminUserBranchId] : []))
+      filteredUsers = users.filter(u => allowedBranchSet.has(u.branch_id))
+    }
+    
+    const values = [...new Set(filteredUsers.map(u => String(u.branch_name || '').trim()).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
-    return ['All Branches', ...values]
-  }, [users])
+    
+    // Only add "All Branches" option for super_admin, not for admin
+    return role === 'super_admin' ? ['All Branches', ...values] : values
+  }, [users, role, adminUserBranchId, adminAllowedBranchIds])
 
   const adminAllowedBranchSet = useMemo(() => new Set(adminAllowedBranchIds), [adminAllowedBranchIds])
 
@@ -1213,7 +1223,7 @@ export default function PerformanceDashboard() {
         ? 'all'
         : [...selectedMonths].sort((a, b) => Number(a) - Number(b)).join('-')
 
-      const cacheKey = `perf_detail_v4_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
+      const cacheKey = `perf_detail_v7_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
 
       const { data, fromCache } = await cachedFetch(
         cacheKey,
@@ -1466,6 +1476,13 @@ export default function PerformanceDashboard() {
     }
   }, [role, authUser?.id])
 
+  // Auto-select first available branch for admin users
+  useEffect(() => {
+    if (role === 'admin' && !selectedBranch && branchOptions.length > 0) {
+      setSelectedBranch(branchOptions[0])
+    }
+  }, [role, branchOptions, selectedBranch])
+
   const toggleQuarter = (q) => {
     if (q === 'All') {
       setSelectedQuarters(['All'])
@@ -1568,14 +1585,10 @@ export default function PerformanceDashboard() {
         </div>
 
         <div className="apdr-filter-group apdr-filter-action">
-          <label>
-            Branch
-            {role === 'admin' && <span title="Your branch cannot be changed"> (Read-only)</span>}
-          </label>
+          <label>Branch</label>
           <select 
             value={selectedBranch} 
-            onChange={(e) => role !== 'admin' && setSelectedBranch(e.target.value)}
-            disabled={role === 'admin'}
+            onChange={(e) => setSelectedBranch(e.target.value)}
           >
             {branchOptions.map(branch => (
               <option key={branch} value={branch}>{branch}</option>
