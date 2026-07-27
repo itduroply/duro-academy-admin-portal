@@ -260,12 +260,12 @@ export default function PerformanceDashboard() {
       setUsersLoading(true)
       setUsersError(null)
       const { data } = await cachedFetch(
-        'perf_dashboard_assigned_users_dgo',
+        'perf_dashboard_assigned_users_dgo_v2',
         async () => {
           const [assignedRes, branchesRes] = await Promise.all([
             supabase
               .from('user_performance_dashboard')
-              .select('users:user_id(id, full_name, email, employee_id, department_id, branch_id, status, leaving_date)')
+              .select('users:user_id(id, full_name, email, employee_id, department_id, branch_id, status, leaving_date, reporting_manager)')
               .contains('access_type', ['DGO'])
               .order('assigned_at', { ascending: false }),
             supabase
@@ -285,6 +285,7 @@ export default function PerformanceDashboard() {
               branch_name: branchMap.get(row.users.branch_id) || '',
               status: row.users.status,
               leaving_date: row.users.leaving_date,
+              reporting_manager: row.users.reporting_manager,
             } : null)
             .filter(Boolean)
 
@@ -1366,6 +1367,7 @@ export default function PerformanceDashboard() {
                   Employee: user.employee_id || '',
                   Employee_Name: user.full_name || '',
                   Status: user.status ? (user.status === 'active' ? 'Active' : 'Inactive') : 'Unknown',
+                  Reporting_Manager: user.reporting_manager || '',
                   Branch_Name: user.branch_name || '',
                   Achieved_Sheet: data.sheetData?.approvedSummary || 0,
                   Sheet_Goal: data.sheetData?.goal || 0,
