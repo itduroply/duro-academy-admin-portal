@@ -192,9 +192,12 @@ function Users() {
         const departmentIds = [...new Set(data?.map(u => u.department_id).filter(Boolean))]
         const branchIds = [...new Set(data?.map(u => u.branch_id).filter(Boolean))]
         const subBranchIds = [...new Set(data?.map(u => u.sub_branch_id).filter(Boolean))]
+        const regionIds = [...new Set(data?.map(u => u.region_id).filter(Boolean))]
+        const subDepartmentIds = [...new Set(data?.map(u => u.sub_department_id).filter(Boolean))]
+        const gradeIds = [...new Set(data?.map(u => u.grade_id).filter(Boolean))]
         
         // Fetch lookups in parallel if there are any
-        const [designationsData, departmentsData, branchesData, subBranchesData] = await Promise.all([
+        const [designationsData, departmentsData, branchesData, subBranchesData, regionsData, subDepartmentsData, gradesData] = await Promise.all([
           designationIds.length > 0 
             ? supabase.from('designations').select('id, designation_name').in('id', designationIds)
             : Promise.resolve({ data: [] }),
@@ -209,6 +212,18 @@ function Users() {
           subBranchIds.length > 0
             ? supabase.from('sub_branches').select('id, sub_branch_name').in('id', subBranchIds)
             : Promise.resolve({ data: [] })
+          ,
+          regionIds.length > 0
+            ? supabase.from('regions').select('id, region_name').in('id', regionIds)
+            : Promise.resolve({ data: [] })
+          ,
+          subDepartmentIds.length > 0
+            ? supabase.from('sub_departments').select('id, sub_department_name').in('id', subDepartmentIds)
+            : Promise.resolve({ data: [] })
+          ,
+          gradeIds.length > 0
+            ? supabase.from('grades').select('id, grade_name').in('id', gradeIds)
+            : Promise.resolve({ data: [] })
         ])
         
         // Create lookup maps for faster access
@@ -216,9 +231,15 @@ function Users() {
         const departmentMap = new Map(departmentsData.data?.map(d => [d.id, d.department_name]) || [])
         const branchMap = new Map(branchesData.data?.map(b => [b.id, b.branch_name]) || [])
         const subBranchMap = new Map(subBranchesData.data?.map(sb => [sb.id, sb.sub_branch_name]) || [])
+        const regionMap = new Map(regionsData.data?.map(r => [r.id, r.region_name]) || [])
+        const subDepartmentMap = new Map(subDepartmentsData.data?.map(sd => [sd.id, sd.sub_department_name]) || [])
+        const gradeMap = new Map(gradesData.data?.map(g => [g.id, g.grade_name]) || [])
         
-        // Transform data to match component expectations
+        // Transform data to match component expectations while preserving all user data
         return data?.map(user => ({
+          // Original user data (all columns from users table)
+          ...user,
+          // UI display fields
           id: user.id,
           name: user.full_name || 'N/A',
           email: user.email,
@@ -227,6 +248,9 @@ function Users() {
           department: departmentMap.get(user.department_id) || 'N/A',
           branch: branchMap.get(user.branch_id) || 'N/A',
           subBranch: subBranchMap.get(user.sub_branch_id) || 'N/A',
+          region: regionMap.get(user.region_id) || 'N/A',
+          subDepartment: subDepartmentMap.get(user.sub_department_id) || 'N/A',
+          grade: gradeMap.get(user.grade_id) || 'N/A',
           role: user.role || 'user',
           status: String(user.status || '').trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active',
           employeeId: user.employee_id,
@@ -807,32 +831,44 @@ function Users() {
     try {
       setExportingUsers(true)
 
-      const exportRows = users.map((user) => ({
-        Name: user.name || '',
-        Email: user.email || '',
-        Phone: user.phone || '',
-        'Employee ID': user.employeeId || '',
-        Designation: user.designation || '',
-        Department: user.department || '',
-        Branch: user.branch || '',
-        'Sub Branch': user.subBranch || '',
-        Role: user.role || '',
-        'Created At': user.createdAt || '',
-      }))
+      // Define columns to export in specific order with exact names
+      const columnMapping = {
+        'Employee_id': 'employee_id',
+        'Full_name': 'full_name',
+        'Email': 'email',
+        'Phone': 'phone',
+        'Designation': 'designation',
+        'Branch': 'branch',
+        'Sub Branch': 'subBranch',
+        'Region': 'region',
+        'Department': 'department',
+        'Sub Department': 'subDepartment',
+        'Reporting_manager': 'reporting_manager',
+        'Date_of_birth': 'date_of_birth',
+        'Date_of_joining': 'date_of_joining',
+        'Leaving_date': 'leaving_date',
+        'Role': 'role',
+        'Status': 'status'
+      }
+
+      const exportRows = users.map((user) => {
+        const row = {}
+        Object.entries(columnMapping).forEach(([displayKey, userKey]) => {
+          row[displayKey] = user[userKey] || ''
+        })
+        return row
+      })
 
       const ws = XLSX.utils.json_to_sheet(exportRows)
-      ws['!cols'] = [
-        { wch: 26 },
-        { wch: 32 },
-        { wch: 18 },
-        { wch: 16 },
-        { wch: 22 },
-        { wch: 22 },
-        { wch: 24 },
-        { wch: 24 },
-        { wch: 12 },
-        { wch: 14 },
-      ]
+      
+      // Auto-fit columns based on content
+      const maxWidth = 32
+      if (exportRows.length > 0) {
+        const colWidths = Object.keys(exportRows[0]).map(key => ({
+          wch: Math.min(maxWidth, Math.max(key.length + 2, 12))
+        }))
+        ws['!cols'] = colWidths
+      }
 
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Users')
