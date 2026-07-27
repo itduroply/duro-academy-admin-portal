@@ -274,7 +274,7 @@ export default function SalesDataScreen({
     if (filtered.length === 0) return
     const exportRows = filtered.map(row => {
       const obj = {}
-      columns.forEach(col => { obj[col.label] = row[col.key] ?? '' })
+      Object.keys(row).forEach(key => { obj[key] = row[key] ?? '' })
       return obj
     })
     const ws = XLSX.utils.json_to_sheet(exportRows)

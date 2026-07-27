@@ -439,18 +439,15 @@ export default function PerformanceDashboard() {
           )
         : Promise.resolve([]),
 
-      // 11. tier upgrade events
-      (startDate && endDateExclusive)
-        ? fetchPaged((from, to) =>
-            supabase
-              .from('tier_upgrade_performance_report')
-              .select('mapped_isr, change_type, previous_tier, new_tier, tier_change_date')
-              .ilike('mapped_isr', `${employeeId}%`)
-              .gte('tier_change_date', startDate)
-              .lt('tier_change_date', endDateExclusive)
-              .range(from, to)
-          )
-        : Promise.resolve([]),
+      // 11. tier upgrade events – fetch all, filter by employee + date in-memory
+      // (tier_change_date is TEXT, so can't use database date filters effectively)
+      fetchPaged((from, to) => {
+        let query = supabase
+          .from('tier_upgrade_performance_report')
+          .select('mapped_isr, change_type, previous_tier, new_tier, tier_change_date')
+          .range(from, to)
+        return applyAliasFilter(query, 'mapped_isr')
+      }),
     ])
 
     // ── PHASE 1c: lead / SGT visit data (3 queries in parallel) ─────────────
@@ -899,8 +896,33 @@ export default function PerformanceDashboard() {
     }
     const normalizeTierForUpgrade = (value) => normalizeTierLabel(value)
     const normalizeChangeType = (value) => String(value || '').trim().toLowerCase()
-    const qualifyingUpgrades = tierUpgradeRows.filter(r => {
-      if (!pairMatch(r.tier_change_date)) return false
+    
+    // Helper: Parse tier_change_date (supports "28 Apr 2026", "2026-04-28", "April 28, 2026")
+    const parseTierChangeDate = (dateStr) => {
+      if (!dateStr) return null
+      try {
+        // Try common formats: "28 Apr 2026", "2026-04-28", "28-04-2026", etc.
+        const date = new Date(dateStr)
+        return isNaN(date.getTime()) ? null : date
+      } catch (e) {
+        return null
+      }
+    }
+    
+    // Filter tier upgrades by selected fiscal year only
+    const fyStart_dt = new Date(`${fyStart}-04-01`)
+    const fyEnd_dt = new Date(`${fyStart + 1}-04-01`)
+    console.log('🔍 Tier Upgrade Debug:', { fyStart, fyStart_dt, fyEnd_dt })
+    console.log('📋 All tier upgrade rows received:', tierUpgradeRows.length, tierUpgradeRows)
+    const tierUpgradeRowsInFY = tierUpgradeRows.filter(r => {
+      const changeDate = parseTierChangeDate(r.tier_change_date)
+      if (!changeDate) return false
+      return changeDate >= fyStart_dt && changeDate < fyEnd_dt
+    })
+    console.log('📅 Tier upgrades in FY window:', tierUpgradeRowsInFY.length, tierUpgradeRowsInFY)
+    const qualifyingUpgrades = tierUpgradeRowsInFY.filter(r => {
+      // NOTE: Tier upgrades should include ALL upgrades for the entire fiscal year,
+      // regardless of the currently selected month filter. Users should see all achievements.
       if (normalizeChangeType(r.change_type) !== 'tier upgrade') return false
 
       const previousTier = normalizeTierForUpgrade(r.previous_tier)
@@ -909,14 +931,22 @@ export default function PerformanceDashboard() {
       const newTierValue = tierMap[newTier]
       if (previousTierValue == null || newTierValue == null) return false
 
-      return ['Silver', 'Gold', 'Titanium'].includes(newTier) && newTierValue > previousTierValue
+      // Apply month/quarter filter to tier upgrades
+      const matchesSelectedMonths = pairMatch(r.tier_change_date)
+      console.log('🔍 Month filter for upgrade:', { date: r.tier_change_date, matches: matchesSelectedMonths })
+      
+      return ['Silver', 'Gold', 'Titanium'].includes(newTier) && newTierValue > previousTierValue && matchesSelectedMonths
     })
+    console.log('✅ Qualifying upgrades:', qualifyingUpgrades.length, qualifyingUpgrades)
     const tierUpgradedDmiCount = qualifyingUpgrades.length
     const dmiUpdatePoints = qualifyingUpgrades.reduce((sum, row) => {
       const previousTierValue = tierMap[normalizeTierForUpgrade(row.previous_tier)]
       const newTierValue = tierMap[normalizeTierForUpgrade(row.new_tier)]
-      return sum + ((newTierValue - previousTierValue) * 25)
+      const points = (newTierValue - previousTierValue) * 25
+      console.log('💰 Single upgrade:', { previous: row.previous_tier, new: row.new_tier, previousValue: previousTierValue, newValue: newTierValue, points })
+      return sum + points
     }, 0)
+    console.log('💰 Total DMI Update Points:', dmiUpdatePoints)
     Object.keys(tierPointsMap).forEach((tier) => {
       if (tierCountMap[tier] == null) tierCountMap[tier] = 0
     })
@@ -1183,7 +1213,7 @@ export default function PerformanceDashboard() {
         ? 'all'
         : [...selectedMonths].sort((a, b) => Number(a) - Number(b)).join('-')
 
-      const cacheKey = `perf_detail_v2_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
+      const cacheKey = `perf_detail_v4_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
 
       const { data, fromCache } = await cachedFetch(
         cacheKey,
@@ -1325,6 +1355,7 @@ export default function PerformanceDashboard() {
                 row: {
                   Employee: user.employee_id || '',
                   Employee_Name: user.full_name || '',
+                  Status: user.status ? (user.status === 'active' ? 'Active' : 'Inactive') : 'Unknown',
                   Branch_Name: user.branch_name || '',
                   Achieved_Sheet: data.sheetData?.approvedSummary || 0,
                   Sheet_Goal: data.sheetData?.goal || 0,

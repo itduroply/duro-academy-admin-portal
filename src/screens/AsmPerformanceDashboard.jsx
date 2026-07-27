@@ -413,6 +413,7 @@ export default function AsmPerformanceDashboard() {
   const [adminUserBranchId, setAdminUserBranchId] = useState(null)
   const [adminAllowedBranchIds, setAdminAllowedBranchIds] = useState([])
   const [selectedDgoModal, setSelectedDgoModal] = useState(null)
+  const [teamFilter, setTeamFilter] = useState('Team')
 
   const currentFYStart = getCurrentFYStart()
   const fyOptions = [
@@ -519,12 +520,15 @@ export default function AsmPerformanceDashboard() {
     }
   }, [selectedUserId])
 
-  const computeAsmPerformance = useCallback(async (employeeId, pairs, fyStart, asmUser, exportMode = false) => {
+  const computeAsmPerformance = useCallback(async (employeeId, pairs, fyStart, asmUser, exportMode = false, teamFilterMode = 'Team') => {
     const exactEmployeeId = String(employeeId || '').trim()
     if (!exactEmployeeId) return null
 
     const sortedPairs = [...pairs].sort((a, b) => (a.year - b.year) || (a.month - b.month))
     const selectedDateWindow = buildDateWindow(sortedPairs)
+    // Fiscal year window for tier upgrades (all upgrades count across entire year, not just selected months)
+    const twoFyStart = `${fyStart - 1}-04-01`
+    const twoFyEnd = `${fyStart + 1}-04-01`
     const now = new Date()
     const nowMonth = now.getMonth() + 1
     const currentFY = nowMonth >= 4 ? now.getFullYear() : now.getFullYear() - 1
@@ -562,7 +566,12 @@ export default function AsmPerformanceDashboard() {
 
     const exactTeam = Array.isArray(dgoUsersExact.data) ? dgoUsersExact.data : []
     const fallbackTeam = Array.isArray(dgoUsersFallback.data) ? dgoUsersFallback.data : []
-    const dgoTeam = exactTeam.length > 0 ? exactTeam : fallbackTeam
+    let dgoTeam = exactTeam.length > 0 ? exactTeam : fallbackTeam
+
+    // Apply team filter: if "My" is selected, exclude team members
+    if (teamFilterMode === 'My') {
+      dgoTeam = []
+    }
 
     const baseCodes = [exactEmployeeId, ...dgoTeam.map(dgo => String(dgo.employee_id || '').trim())].filter(Boolean)
     const rawTeamIds = [...new Set(baseCodes)]
@@ -970,27 +979,72 @@ export default function AsmPerformanceDashboard() {
         ? await fetchPaged((from, to) => {
             let query = supabase
               .from('tier_upgrade_performance_report')
-              .select('mapped_isr, change_type, previous_tier, tier_change_date')
+              .select('mapped_isr, change_type, previous_tier, new_tier, tier_change_date')
               .order('tier_change_date', { ascending: false })
               .order('mapped_isr', { ascending: true })
               .order('previous_tier', { ascending: true })
               .range(from, to)
-            if (selectedDateWindow.startDate && selectedDateWindow.endDateExclusive) {
-              query = query.gte('tier_change_date', selectedDateWindow.startDate).lt('tier_change_date', selectedDateWindow.endDateExclusive)
-            }
             if (claimCodeExact) query = query.ilike('mapped_isr', `${claimCodeExact}%`)
             else query = query.or(upgradeFilter)
             return query
           })
         : []
 
-      const qualifyingUpgrades = allUpgradeRecords.filter(record => {
-        const parsed = getMonthYearFromValue(record.tier_change_date)
-        return parsed &&
-          selectedMonthKeySet.has(`${parsed.month}_${parsed.year}`) &&
-          String(record.change_type || '').trim() === 'Tier Upgrade' &&
-          ['Bronze', 'Gold', 'Silver'].includes(String(record.previous_tier || '').trim())
+      // Filter tier upgrades by selected fiscal year only
+      const fyStart_dt = new Date(`${fyStart}-04-01`)
+      const fyEnd_dt = new Date(`${fyStart + 1}-04-01`)
+      console.log('🔍 ASM Tier Upgrade Debug:', { fyStart, fyStart_dt, fyEnd_dt })
+      console.log('📋 All tier upgrade rows received:', allUpgradeRecords.length)
+      const parseTierChangeDate = (dateStr) => {
+        if (!dateStr) return null
+        try {
+          const date = new Date(dateStr)
+          return isNaN(date.getTime()) ? null : date
+        } catch (e) {
+          return null
+        }
+      }
+      const tierUpgradeRecordsInFY = allUpgradeRecords.filter(r => {
+        const changeDate = parseTierChangeDate(r.tier_change_date)
+        if (!changeDate) return false
+        return changeDate >= fyStart_dt && changeDate < fyEnd_dt
       })
+      console.log('📅 Tier upgrades in FY window:', tierUpgradeRecordsInFY.length)
+
+      // Helper to match tier upgrade date against selected months
+      const matchesSelectedMonthsForTier = (dateStr) => {
+        const parsed = getMonthYearFromValue(dateStr)
+        if (!parsed) return false
+        return selectedMonthKeySet.has(`${parsed.month}_${parsed.year}`)
+      }
+
+      const tierMapUpgrade = {
+        'Base Tier': 1,
+        'Bronze': 2,
+        'Silver': 3,
+        'Gold': 4,
+        'Titanium': 5,
+      }
+      const normalizeTierForUpgrade = (value) => normalizeTierLabel(value)
+
+      const qualifyingUpgrades = tierUpgradeRecordsInFY.filter(record => {
+        // NOTE: Tier upgrades should include ALL upgrades for the entire fiscal year,
+        // regardless of the currently selected month filter. Users should see all achievements.
+        if (String(record.change_type || '').trim() !== 'Tier Upgrade') return false
+
+        const previousTier = normalizeTierForUpgrade(record.previous_tier)
+        const newTier = normalizeTierForUpgrade(record.new_tier)
+        const previousTierValue = tierMapUpgrade[previousTier]
+        const newTierValue = tierMapUpgrade[newTier]
+        if (previousTierValue == null || newTierValue == null) return false
+
+        // Apply month/quarter filter to tier upgrades
+        const matchesSelectedMonths = matchesSelectedMonthsForTier(record.tier_change_date)
+        console.log('🔍 ASM Month filter for upgrade:', { date: record.tier_change_date, matches: matchesSelectedMonths })
+
+        return ['Silver', 'Gold', 'Titanium'].includes(newTier) && newTierValue > previousTierValue && matchesSelectedMonths
+      })
+      console.log('✅ ASM Qualifying upgrades:', qualifyingUpgrades.length, qualifyingUpgrades)
 
       const tierBreakdown = Object.entries(tierCountMap)
         .map(([tier, count]) => ({
@@ -1008,7 +1062,14 @@ export default function AsmPerformanceDashboard() {
         })
 
       const newEnrolledPoints = newDmiCount * 10
-      const dmiUpdatePoints = qualifyingUpgrades.length * 25
+      const dmiUpdatePoints = qualifyingUpgrades.reduce((sum, row) => {
+        const previousTierValue = tierMapUpgrade[normalizeTierForUpgrade(row.previous_tier)]
+        const newTierValue = tierMapUpgrade[normalizeTierForUpgrade(row.new_tier)]
+        const points = (newTierValue - previousTierValue) * 25
+        console.log('💰 ASM Single upgrade:', { previous: row.previous_tier, new: row.new_tier, previousValue: previousTierValue, newValue: newTierValue, points })
+        return sum + points
+      }, 0)
+      console.log('💰 ASM Total DMI Update Points:', dmiUpdatePoints)
 
       return {
         achievedPoints: finalRawPoints + newEnrolledPoints + dmiUpdatePoints,
@@ -1529,11 +1590,11 @@ export default function AsmPerformanceDashboard() {
 
       const quarterKey = selectedQuarters.includes('All') ? 'all' : [...selectedQuarters].sort().join('-')
       const monthKey = selectedMonths.includes('All') ? 'all' : [...selectedMonths].sort((a, b) => Number(a) - Number(b)).join('-')
-      const cacheKey = `asm_perf_detail_v6_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
+      const cacheKey = `asm_perf_detail_v8_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}_${teamFilter}`
 
       const result = await cachedFetch(
         cacheKey,
-        () => computeAsmPerformance(selectedUser.employee_id, monthYearPairs, selectedFYStart, selectedUser),
+        () => computeAsmPerformance(selectedUser.employee_id, monthYearPairs, selectedFYStart, selectedUser, false, teamFilter),
         TTL.SHORT,
         forceRefresh
       )
@@ -1546,7 +1607,7 @@ export default function AsmPerformanceDashboard() {
     } finally {
       if (mountedRef.current) setDetailLoading(false)
     }
-  }, [selectedFYStart, selectedMonths, selectedQuarters, selectedUser, monthYearPairs, computeAsmPerformance])
+  }, [selectedFYStart, selectedMonths, selectedQuarters, selectedUser, monthYearPairs, computeAsmPerformance, teamFilter])
 
   const downloadCurrentReport = useCallback(() => {
     if (!detailData || !selectedUser) return
@@ -1799,6 +1860,10 @@ export default function AsmPerformanceDashboard() {
     }
   }, [role, authUser?.id])
 
+  useEffect(() => {
+    setTeamFilter('Team')
+  }, [selectedUserId])
+
   const totalSummaryRows = detailData ? [
     { label: 'Sheets', achieved: toNumber(detailData.sheetData.approvedSummary), goal: toNumber(detailData.sheetData.goal) },
     { label: 'Active DMIs', achieved: toNumber(detailData.dmiData.activeDmiCount) + toNumber(detailData.dmiData.newDmiCount), goal: toNumber(detailData.dmiGoal / 40) },
@@ -1954,6 +2019,13 @@ export default function AsmPerformanceDashboard() {
                   <p>{selectedUser.employee_id || '-'} | {selectedUser.email || '-'} | {selectedUser.branch_name || 'No branch'}</p>
                 </div>
                 <div className="apdr-detail-actions">
+                  <div className="apdr-filter-group" style={{ minWidth: '120px' }}>
+                    <label>View</label>
+                    <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}>
+                      <option value="My">My</option>
+                      <option value="Team">Team</option>
+                    </select>
+                  </div>
                   <span className={`apdr-cache-pill ${fromCache ? 'cached' : 'fresh'}`}>{fromCache ? 'Cached' : 'Live'}</span>
                   <button className="apdr-btn apdr-btn-secondary" onClick={() => loadDetail(true)}>
                     <i className="fa-solid fa-rotate-right"></i>
@@ -2043,10 +2115,10 @@ export default function AsmPerformanceDashboard() {
                   <div className="apdr-grid3">
                     <div><label>Claimed DMIs</label><strong>{detailData.dmiData.claimedDmiCount.toLocaleString()}</strong></div>
                     <div><label>Active DMIs</label><strong>{detailData.dmiData.activeDmiCount.toLocaleString()}</strong></div>
-                    <div><label>New DMIs</label><strong>{detailData.dmiData.newDmiCount.toLocaleString()}</strong></div>
                     <div><label>Goal</label><strong>{detailData.dmiGoal.toLocaleString()}</strong></div>
                     <div><label>Achieved Points</label><strong>{detailData.dmiData.achievedPoints.toLocaleString()}</strong></div>
-                    <div><label>Avg Sheets / DMI</label><strong>{toNumber(detailData.dmiData.averageSheetsPerDmi).toFixed(1)}</strong></div>
+                    <div><label>New DMI Points</label><strong>{detailData.dmiData.newEnrolledPoints.toLocaleString()}</strong></div>
+                    <div><label>Tier Upgrade Points</label><strong>{detailData.dmiData.dmiUpdatePoints.toLocaleString()}</strong></div>
                   </div>
 
                   <div className="apdr-subtable-wrap">

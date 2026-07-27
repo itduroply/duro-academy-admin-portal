@@ -24,6 +24,7 @@ export default function OnrollOffrole() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [formData, setFormData] = useState(EMPTY_FORM)
+  const [successSummary, setSuccessSummary] = useState(null)
 
   const loadRows = useCallback(async () => {
     try {
@@ -105,7 +106,7 @@ export default function OnrollOffrole() {
 
       if (userError) throw userError
 
-      const { error: rpcError } = await supabase.rpc('propagate_employee_id_change', {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('propagate_employee_id_change', {
         p_old_employee_id: oldEmployeeId,
         p_new_employee_id: newEmployeeId,
         p_date_of_change: dateOfChange,
@@ -114,7 +115,8 @@ export default function OnrollOffrole() {
 
       if (rpcError) throw rpcError
 
-      closeModal()
+      setSuccessSummary(rpcData)
+      setFormData(EMPTY_FORM)
       await loadRows()
     } catch (err) {
       setFormError(err.message || 'Failed to update employee ID')
@@ -227,6 +229,94 @@ export default function OnrollOffrole() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {successSummary && (
+        <div className="oor-modal-backdrop" onClick={() => setSuccessSummary(null)}>
+          <div className="oor-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="oor-modal-header">
+              <h3>Employee ID Updated Successfully</h3>
+              <button className="oor-close-btn" onClick={() => setSuccessSummary(null)}>
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <div className="oor-success-content">
+              <div className="oor-success-info">
+                <p><strong>Old Employee ID:</strong> {successSummary.old_employee_id}</p>
+                <p><strong>New Employee ID:</strong> {successSummary.new_employee_id}</p>
+                <p><strong>Date of Change:</strong> {formatDate(successSummary.date_of_change)}</p>
+              </div>
+
+              <h4>Tables Updated:</h4>
+              <table className="oor-updated-tables">
+                <thead>
+                  <tr>
+                    <th>Table Name</th>
+                    <th>Column</th>
+                    <th>Records Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>influencer_claim_details</td>
+                    <td>mapped_isr_code</td>
+                    <td>{successSummary.updated_counts.influencer_claim_details_mapped_isr_code}</td>
+                  </tr>
+                  <tr>
+                    <td>influencer_enrollment_details</td>
+                    <td>enrolled_by_dso_code</td>
+                    <td>{successSummary.updated_counts.influencer_enrollment_details_enrolled_by_dso_code}</td>
+                  </tr>
+                  <tr>
+                    <td>influencer_visit_reports</td>
+                    <td>mapped_isr_code</td>
+                    <td>{successSummary.updated_counts.influencer_visit_reports_mapped_isr_code}</td>
+                  </tr>
+                  <tr>
+                    <td>lead_details_reports</td>
+                    <td>lead_created_by</td>
+                    <td>{successSummary.updated_counts.lead_details_reports_lead_created_by}</td>
+                  </tr>
+                  <tr>
+                    <td>lead_task_reports</td>
+                    <td>task_created_by_dso_code</td>
+                    <td>{successSummary.updated_counts.lead_task_reports_task_created_by_dso_code}</td>
+                  </tr>
+                  <tr>
+                    <td>m_enrollment_details</td>
+                    <td>mapped_isr</td>
+                    <td>{successSummary.updated_counts.m_enrollment_details_mapped_isr}</td>
+                  </tr>
+                  <tr>
+                    <td>tier_upgrade_performance_report</td>
+                    <td>mapped_isr</td>
+                    <td>{successSummary.updated_counts.tier_upgrade_performance_report_mapped_isr}</td>
+                  </tr>
+                  <tr>
+                    <td>telecalling_influencer_wartask</td>
+                    <td>mapped_isr_code</td>
+                    <td>{successSummary.updated_counts.telecalling_influencer_wartask_mapped_isr_code}</td>
+                  </tr>
+                  <tr>
+                    <td>monthly_attendance_report</td>
+                    <td>employee_code</td>
+                    <td>{successSummary.updated_counts.monthly_attendance_report_employee_code}</td>
+                  </tr>
+                  <tr>
+                    <td>employee_id_change_log</td>
+                    <td>-</td>
+                    <td>{successSummary.updated_counts.employee_id_change_log_inserted}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div className="oor-form-actions">
+                <button type="button" className="oor-btn-primary" onClick={() => setSuccessSummary(null)}>Close</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

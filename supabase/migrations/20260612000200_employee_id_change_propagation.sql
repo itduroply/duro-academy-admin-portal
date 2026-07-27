@@ -137,11 +137,6 @@ begin
   );
   get diagnostics c_log = row_count;
 
-  update public.users
-     set employee_id = v_new
-   where employee_id = v_old;
-  get diagnostics c_user = row_count;
-
   return jsonb_build_object(
     'success', true,
     'old_employee_id', v_old,
@@ -157,7 +152,6 @@ begin
       'tier_upgrade_performance_report_mapped_isr', c_tier_upgrade,
       'telecalling_influencer_wartask_mapped_isr_code', c_war,
       'monthly_attendance_report_employee_code', c_att,
-      'users_employee_id', c_user,
       'employee_id_change_log_inserted', c_log
     )
   );
