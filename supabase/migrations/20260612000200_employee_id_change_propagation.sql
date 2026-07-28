@@ -77,8 +77,8 @@ begin
   get diagnostics c_enroll = row_count;
 
   update public.influencer_visit_reports
-     set mapped_isr_code = v_new
-   where btrim(mapped_isr_code) = v_old;
+     set emp_login = v_new
+   where emp_login = v_old OR BTRIM(emp_login) = v_old OR BTRIM(emp_login) = BTRIM(v_old);
   get diagnostics c_visit = row_count;
 
   update public.lead_details_reports
@@ -145,7 +145,7 @@ begin
     'updated_counts', jsonb_build_object(
       'influencer_claim_details_mapped_isr_code', c_claim,
       'influencer_enrollment_details_enrolled_by_dso_code', c_enroll,
-      'influencer_visit_reports_mapped_isr_code', c_visit,
+      'influencer_visit_reports_emp_login', c_visit,
       'lead_details_reports_lead_created_by', c_lead_details,
       'lead_task_reports_task_created_by_dso_code', c_lead_task,
       'm_enrollment_details_mapped_isr', c_m_enroll,
