@@ -25,7 +25,7 @@ DECLARE
 BEGIN
   v_old := p_old_employee_id;
   v_new := p_new_employee_id;
-  v_pattern := '(' || regexp_quote(v_old) || ')(.*)';
+  v_pattern := '(^' || v_old || ')(.*)';
 
   -- Update influencer_claim_details
   update public.influencer_claim_details
