@@ -973,7 +973,7 @@ export default function AsmPerformanceDashboard() {
       const totalRawPoints = Object.entries(tierCountMap)
         .reduce((sum, [tier, count]) => sum + (toNumber(count) * toNumber(tierPointsMap[tier])), 0)
 
-      const activeDmiCount = [...new Set(activeDmiEntries.map(entry => entry.account))].length
+      const activeDmiCount = activeDmiEntries.length  // sum across all selected months (not unique accounts)
       const claimedDmiCount = [...new Set(dmiClaims.map(claim => normalizeAccount(claim.account_number)).filter(Boolean))].length
       const achievedSheetsInPeriod = dmiClaims.reduce((sum, claim) => sum + toNumber(claim.approved_qty), 0)
       const averageSheetsPerDmi = activeDmiCount + newDmiCount > 0
@@ -1095,54 +1095,82 @@ export default function AsmPerformanceDashboard() {
       }
     }
 
-    const fetchSgtCoverage = async ({ codes, monthYearPairs, strictEmployeeCode = null }) => {
+    const fetchSgtCoverage = async ({ codes, monthYearPairs }) => {
       if (!codes || codes.length === 0 || !monthYearPairs || monthYearPairs.length === 0) {
         return { visitGoal: 0, achievedVisits: 0, sgtTierBreakdown: [] }
       }
 
-      const exactCode = String(strictEmployeeCode || '').trim()
-      const normalizedCodes = [...new Set((codes || []).map(code => String(code || '').trim()).filter(Boolean))]
+      // Raw codes (e.g. ['D10599', 'D10361']) — no alias expansion needed; ilike handles prefixes
+      const rawCodes = [...new Set((codes || []).map(c => String(c || '').trim()).filter(Boolean))]
+      if (rawCodes.length === 0) return { visitGoal: 0, achievedVisits: 0, sgtTierBreakdown: [] }
 
-      // No date restriction on enrollment — fetch all enrollments to get latest active status
-      // Use ilike prefix OR filter (same as mobile app) instead of exact .in() to handle
-      // case/format variations in mapped_isr column values
-      const isrOrFilter = exactCode
-        ? ''
-        : buildPrefixOrFilter('mapped_isr', normalizedCodes)
-      const allEnrollments = (exactCode || isrOrFilter)
-        ? await fetchPaged((from, to) =>
-            {
-              let query = supabase
+      // ── STEP 1: Fetch all S/G/T enrollments for these ISR codes ──────────────
+      // Use the END of the selected date window so we reflect the enrollment state
+      // AS OF the selected month (excludes future re-assignments).
+      const enrollmentCutoff = selectedDateWindow.endDateExclusive || null
+      const isrOrFilter = buildPrefixOrFilter('mapped_isr', rawCodes)
+
+      const candidateEnrollments = isrOrFilter
+        ? await fetchPaged((from, to) => {
+            let query = supabase
               .from('m_enrollment_details')
-              .select('account_no, tier, is_active, created_at')
+              .select('account_no, tier, is_active, created_at, mapped_isr')
               .in('tier', ['Silver', 'Gold', 'Titanium'])
               .order('created_at', { ascending: false, nullsFirst: false })
               .order('account_no', { ascending: true })
-              .order('tier', { ascending: true })
               .range(from, to)
-              if (exactCode) query = query.ilike('mapped_isr', `${exactCode}%`)
-              else query = query.or(isrOrFilter)
-              return query
-            }
-          )
+            if (enrollmentCutoff) query = query.lt('created_at', enrollmentCutoff)
+            return query.or(isrOrFilter)
+          })
         : []
 
-      const latestAccountMap = {}
-      allEnrollments.forEach(row => {
+      // ── STEP 2: For candidate accounts, fetch ALL enrollment records (any ISR) ─
+      // This lets us find the globally-latest enrollment per account as of cutoff,
+      // so we can confirm the account still belongs to one of our ISR codes.
+      const candidateAccountNos = [...new Set(candidateEnrollments.map(r => String(r.account_no || '').trim()).filter(Boolean))]
+      const CHUNK = 100
+      const verifyEnrollments = candidateAccountNos.length > 0
+        ? (await Promise.all(
+            Array.from({ length: Math.ceil(candidateAccountNos.length / CHUNK) }, (_, i) =>
+              candidateAccountNos.slice(i * CHUNK, (i + 1) * CHUNK)
+            ).map(chunk =>
+              fetchPaged((from, to) => {
+                let query = supabase
+                  .from('m_enrollment_details')
+                  .select('account_no, tier, is_active, created_at, mapped_isr')
+                  .in('account_no', chunk)
+                  .in('tier', ['Silver', 'Gold', 'Titanium'])
+                  .order('created_at', { ascending: false, nullsFirst: false })
+                  .order('account_no', { ascending: true })
+                  .range(from, to)
+                if (enrollmentCutoff) query = query.lt('created_at', enrollmentCutoff)
+                return query
+              })
+            )
+          )).flat()
+        : []
+
+      // ── STEP 3: Get globally-latest enrollment per account (as of cutoff) ────
+      const latestPerAccount = {}
+      verifyEnrollments.forEach(row => {
         const account = String(row.account_no || '').trim()
-        const active = ['true', 't', '1', 'yes', 'y'].includes(String(row.is_active ?? '').trim().toLowerCase())
-        if (!account || latestAccountMap[account]) return
-        latestAccountMap[account] = { tier: row.tier, isActive: active }
+        if (!account || latestPerAccount[account]) return  // sorted DESC → first seen = latest
+        latestPerAccount[account] = row
       })
 
+      // ── STEP 4: Build active tier map — only accounts whose latest enrollment ─
+      // is mapped to one of our ISR codes AND is active
+      const isrPrefixesLower = rawCodes.map(c => c.toLowerCase())
       const activeTierMap = {}
-      Object.entries(latestAccountMap).forEach(([account, info]) => {
-        if (!info.isActive) return
-        activeTierMap[account] = info.tier
+      Object.entries(latestPerAccount).forEach(([account, row]) => {
+        const isActive = ['true', 't', '1', 'yes', 'y'].includes(String(row.is_active ?? '').trim().toLowerCase())
+        if (!isActive) return
+        const isr = String(row.mapped_isr || '').trim().toLowerCase()
+        if (!isrPrefixesLower.some(prefix => isr.startsWith(prefix))) return
+        activeTierMap[account] = row.tier
       })
 
-      // ASM rule: 1 visit per month per active S/G/T account regardless of tier
-      // (matches mobile app: all tiers have 1 visit/month goal)
+      // ── STEP 5: Compute goal (1 visit/month per active S/G/T account) ────────
       const tierMonthlyGoalMap = { Silver: 0, Gold: 0, Titanium: 0 }
       let monthlyVisitGoal = 0
       Object.values(activeTierMap).forEach(tier => {
@@ -1152,11 +1180,9 @@ export default function AsmPerformanceDashboard() {
         }
       })
 
-      // Use prefix OR filter for visit reports too (matches mobile app approach)
-      const isrCodeOrFilter = exactCode
-        ? ''
-        : buildPrefixOrFilter('mapped_isr_code', normalizedCodes)
-      const allVisits = (exactCode || isrCodeOrFilter)
+      // ── STEP 6: Fetch visits for these accounts in the selected date window ──
+      const visitIsrOrFilter = buildPrefixOrFilter('mapped_isr_code', rawCodes)
+      const allVisits = visitIsrOrFilter
         ? await fetchPaged((from, to) => {
             let query = supabase
               .from('influencer_visit_reports')
@@ -1168,9 +1194,7 @@ export default function AsmPerformanceDashboard() {
             if (selectedDateWindow.startDate && selectedDateWindow.endDateExclusive) {
               query = query.gte('visit_date', selectedDateWindow.startDate).lt('visit_date', selectedDateWindow.endDateExclusive)
             }
-            if (exactCode) query = query.ilike('mapped_isr_code', `${exactCode}%`)
-            else query = query.or(isrCodeOrFilter)
-            return query
+            return query.or(visitIsrOrFilter)
           })
         : []
 
@@ -1181,6 +1205,7 @@ export default function AsmPerformanceDashboard() {
         return parsed ? selectedMonthKeySet.has(`${parsed.month}_${parsed.year}`) : false
       })
 
+      // Deduplicate by day, then cap at 1 visit per account per month
       const uniqueDayVisits = new Map()
       filteredVisits.forEach(visit => {
         const date = parseDateSafe(visit.visit_date)
@@ -1201,7 +1226,6 @@ export default function AsmPerformanceDashboard() {
         monthlyVisitCounts[key].count += 1
       })
 
-      // Cap at 1 visit per influencer per month for ALL tiers (matches mobile app)
       let totalAchievedVisits = 0
       const tierAchievedMap = { Silver: 0, Gold: 0, Titanium: 0 }
       Object.values(monthlyVisitCounts).forEach(({ count, tier }) => {
@@ -1438,6 +1462,8 @@ export default function AsmPerformanceDashboard() {
       }
     }
 
+    const sgtCoverageCodes = teamFilterMode === 'Team' ? rawTeamIds : [exactEmployeeId]
+
     const [sheetResult, dmiData, sgtData, warTaskData, buddyWorkingData, dmiSiteData] = await Promise.all([
       fetchSheetPoints({
         codes: rawTeamIds,
@@ -1446,7 +1472,7 @@ export default function AsmPerformanceDashboard() {
         dmiGoalCodeList: asmGoalCodes,
       }),
       fetchDmiPoints({ codes: allCodes, monthYearPairs: sortedPairs }),
-      fetchSgtCoverage({ codes: allCodes, monthYearPairs: sortedPairs }),
+      fetchSgtCoverage({ codes: sgtCoverageCodes, monthYearPairs: sortedPairs }),
       fetchWarTask({ codes: allCodes, monthYearPairs: sortedPairs }),
       fetchBuddyWorking(),
       fetchDmiSiteVisits({ codes: allCodes, monthYearPairs: sortedPairs }),
@@ -2179,6 +2205,26 @@ export default function AsmPerformanceDashboard() {
                         ))}
                       </tbody>
                     </table>
+
+                    {detailData.behaviorData.breakdown
+                      .filter(row => row.label === 'S/G/T Coverage' && Array.isArray(row.sgtTierBreakdown) && row.sgtTierBreakdown.length > 0)
+                      .map((row, idx) => (
+                        <div key={`sgt-tier-${idx}`} style={{ marginTop: '0.75rem' }}>
+                          <h5>S/G/T Tier-wise Breakdown</h5>
+                          <table className="apdr-subtable">
+                            <thead><tr><th>Tier</th><th>Achieved</th><th>Goal</th></tr></thead>
+                            <tbody>
+                              {row.sgtTierBreakdown.map((tierRow, tierIdx) => (
+                                <tr key={tierIdx}>
+                                  <td>{tierRow.tier}</td>
+                                  <td>{toNumber(tierRow.achievedVisits).toLocaleString()}</td>
+                                  <td>{toNumber(tierRow.goalVisits).toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
                   </div>
                 </div>
               </div>

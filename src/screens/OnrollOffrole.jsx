@@ -2,10 +2,23 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import './OnrollOffrole.css'
 
+const TABLES = [
+  { id: 'influencer_claim_details', label: 'Influencer Claim Details', column: 'mapped_isr_code' },
+  { id: 'influencer_enrollment_details', label: 'Influencer Enrollment Details', column: 'enrolled_by_dso_code' },
+  { id: 'influencer_visit_reports', label: 'Influencer Visit Reports', column: 'emp_login' },
+  { id: 'lead_details_reports', label: 'Lead Details Reports', column: 'lead_created_by' },
+  { id: 'lead_task_reports', label: 'Lead Task Reports', column: 'task_created_by_dso_code' },
+  { id: 'm_enrollment_details', label: 'M Enrollment Details', column: 'mapped_isr' },
+  { id: 'tier_upgrade_performance_report', label: 'Tier Upgrade Performance Report', column: 'mapped_isr' },
+  { id: 'telecalling_influencer_wartask', label: 'Telecalling Influencer Wartask', column: 'mapped_isr_code' },
+  { id: 'monthly_attendance_report', label: 'Monthly Attendance Report', column: 'employee_code' },
+]
+
 const EMPTY_FORM = {
   oldEmployeeId: '',
   newEmployeeId: '',
   dateOfChange: '',
+  selectedTables: TABLES.reduce((acc, t) => ({ ...acc, [t.id]: true }), {}),
 }
 
 function formatDate(dateText) {
@@ -77,6 +90,23 @@ export default function OnrollOffrole() {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
+  const onTableToggle = (tableId) => {
+    setFormData(prev => ({
+      ...prev,
+      selectedTables: {
+        ...prev.selectedTables,
+        [tableId]: !prev.selectedTables[tableId],
+      }
+    }))
+  }
+
+  const toggleAllTables = (checked) => {
+    setFormData(prev => ({
+      ...prev,
+      selectedTables: TABLES.reduce((acc, t) => ({ ...acc, [t.id]: checked }), {}),
+    }))
+  }
+
   const onSubmit = async (e) => {
     e.preventDefault()
     setFormError('')
@@ -92,6 +122,15 @@ export default function OnrollOffrole() {
 
     if (oldEmployeeId.toLowerCase() === newEmployeeId.toLowerCase()) {
       setFormError('Old Employee ID and New Employee ID cannot be the same')
+      return
+    }
+
+    const selectedTablesList = Object.entries(formData.selectedTables)
+      .filter(([_, selected]) => selected)
+      .map(([tableId, _]) => tableId)
+
+    if (selectedTablesList.length === 0) {
+      setFormError('Please select at least one table to update')
       return
     }
 
@@ -111,6 +150,7 @@ export default function OnrollOffrole() {
         p_new_employee_id: newEmployeeId,
         p_date_of_change: dateOfChange,
         p_employee_name: userRow?.full_name || null,
+        p_selected_tables: selectedTablesList,
       })
 
       if (rpcError) throw rpcError
@@ -220,6 +260,35 @@ export default function OnrollOffrole() {
                 />
               </div>
 
+              <div className="oor-form-group">
+                <label>Tables to Update</label>
+                <div className="oor-tables-section">
+                  <div className="oor-table-header">
+                    <label className="oor-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={TABLES.every(t => formData.selectedTables[t.id])}
+                        onChange={(e) => toggleAllTables(e.target.checked)}
+                      />
+                      <span><strong>Select All</strong></span>
+                    </label>
+                  </div>
+                  <div className="oor-tables-list">
+                    {TABLES.map(table => (
+                      <label key={table.id} className="oor-checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={formData.selectedTables[table.id] || false}
+                          onChange={() => onTableToggle(table.id)}
+                        />
+                        <span>{table.label}</span>
+                        <span className="oor-column-name">({table.column})</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               {formError && <div className="oor-error">{formError}</div>}
 
               <div className="oor-form-actions">
@@ -263,47 +332,47 @@ export default function OnrollOffrole() {
                   <tr>
                     <td>influencer_claim_details</td>
                     <td>mapped_isr_code</td>
-                    <td>{successSummary.updated_counts.influencer_claim_details_mapped_isr_code}</td>
+                    <td>{successSummary.updated_counts?.influencer_claim_details_mapped_isr_code ?? 0}</td>
                   </tr>
                   <tr>
                     <td>influencer_enrollment_details</td>
                     <td>enrolled_by_dso_code</td>
-                    <td>{successSummary.updated_counts.influencer_enrollment_details_enrolled_by_dso_code}</td>
+                    <td>{successSummary.updated_counts?.influencer_enrollment_details_enrolled_by_dso_code ?? 0}</td>
                   </tr>
                   <tr>
                     <td>influencer_visit_reports</td>
-                    <td>mapped_isr_code</td>
-                    <td>{successSummary.updated_counts.influencer_visit_reports_mapped_isr_code}</td>
+                    <td>emp_login</td>
+                    <td>{successSummary.updated_counts?.influencer_visit_reports_emp_login ?? 0}</td>
                   </tr>
                   <tr>
                     <td>lead_details_reports</td>
                     <td>lead_created_by</td>
-                    <td>{successSummary.updated_counts.lead_details_reports_lead_created_by}</td>
+                    <td>{successSummary.updated_counts?.lead_details_reports_lead_created_by ?? 0}</td>
                   </tr>
                   <tr>
                     <td>lead_task_reports</td>
                     <td>task_created_by_dso_code</td>
-                    <td>{successSummary.updated_counts.lead_task_reports_task_created_by_dso_code}</td>
+                    <td>{successSummary.updated_counts?.lead_task_reports_task_created_by_dso_code ?? 0}</td>
                   </tr>
                   <tr>
                     <td>m_enrollment_details</td>
                     <td>mapped_isr</td>
-                    <td>{successSummary.updated_counts.m_enrollment_details_mapped_isr}</td>
+                    <td>{successSummary.updated_counts?.m_enrollment_details_mapped_isr ?? 0}</td>
                   </tr>
                   <tr>
                     <td>tier_upgrade_performance_report</td>
                     <td>mapped_isr</td>
-                    <td>{successSummary.updated_counts.tier_upgrade_performance_report_mapped_isr}</td>
+                    <td>{successSummary.updated_counts?.tier_upgrade_performance_report_mapped_isr ?? 0}</td>
                   </tr>
                   <tr>
                     <td>telecalling_influencer_wartask</td>
                     <td>mapped_isr_code</td>
-                    <td>{successSummary.updated_counts.telecalling_influencer_wartask_mapped_isr_code}</td>
+                    <td>{successSummary.updated_counts?.telecalling_influencer_wartask_mapped_isr_code ?? 0}</td>
                   </tr>
                   <tr>
                     <td>monthly_attendance_report</td>
                     <td>employee_code</td>
-                    <td>{successSummary.updated_counts.monthly_attendance_report_employee_code}</td>
+                    <td>{successSummary.updated_counts?.monthly_attendance_report_employee_code ?? 0}</td>
                   </tr>
                   <tr>
                     <td>employee_id_change_log</td>

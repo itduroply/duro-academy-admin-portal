@@ -241,12 +241,14 @@ export default function PerformanceDashboard() {
       const branch = (u.branch_name || '').trim()
       const matchesSearch = !q || name.includes(q) || email.includes(q) || emp.includes(q)
       
-      // If user is admin, only show users from their assigned branches
+      // If user is admin, only show users from their assigned branches,
+      // and also apply selectedBranch dropdown filter if one is chosen
       if (role === 'admin') {
         const branchAllowed = adminAllowedBranchSet.size > 0
           ? adminAllowedBranchSet.has(u.branch_id)
           : adminUserBranchId === u.branch_id
-        return matchesSearch && branchAllowed
+        const matchesBranch = !selectedBranch || branch === selectedBranch
+        return matchesSearch && branchAllowed && matchesBranch
       }
       
       // If user is super_admin, apply the selectedBranch filter
@@ -389,10 +391,11 @@ export default function PerformanceDashboard() {
       tierUpgradeRows,
     ] = await Promise.all([
       // 6. SGT enrollment rows (Silver/Gold/Titanium, active, within 2-FY for relevance)
+      // NOTE: mapped_isr is included so we can verify ownership after global-latest check
       fetchPaged((from, to) => {
         let query = supabase
           .from('m_enrollment_details')
-          .select('account_no, tier, is_active, created_at')
+          .select('account_no, tier, is_active, created_at, mapped_isr')
           .in('tier', ['Silver', 'Gold', 'Titanium'])
           .gte('created_at', twoFyStart)
           .order('created_at', { ascending: false, nullsFirst: false })
@@ -555,10 +558,41 @@ export default function PerformanceDashboard() {
       const normalized = String(value ?? '').trim().toLowerCase()
       return ['true', 't', '1', 'yes', 'y'].includes(normalized)
     }
-    const uniqueTierByAccount = {}
-    enrollmentRowsSGT.forEach(r => {
+
+    // Step 1: candidate account_nos from ISR-filtered enrollments
+    const candidateSgtAccountNos = [...new Set(
+      enrollmentRowsSGT.map(r => String(r.account_no || '').trim()).filter(Boolean)
+    )]
+
+    // Step 2: For candidate accounts, fetch ALL enrollments (any ISR) to find globally-latest
+    const verifyEnrollmentsSGT = candidateSgtAccountNos.length > 0
+      ? await fetchPaged((from, to) =>
+          supabase
+            .from('m_enrollment_details')
+            .select('account_no, tier, is_active, created_at, mapped_isr')
+            .in('account_no', candidateSgtAccountNos)
+            .in('tier', ['Silver', 'Gold', 'Titanium'])
+            .order('created_at', { ascending: false, nullsFirst: false })
+            .order('account_no', { ascending: true })
+            .range(from, to)
+        )
+      : []
+
+    // Step 3: Build uniqueTierByAccount using GLOBALLY-latest enrollment per account
+    // Only keep accounts where the globally-latest enrollment's ISR matches this employee
+    const globallyLatestSgtMap = {}
+    verifyEnrollmentsSGT.forEach(r => {
       const account = String(r.account_no || '').trim()
-      if (!account || !isActiveTrue(r.is_active) || uniqueTierByAccount[account]) return
+      if (!account || globallyLatestSgtMap[account]) return  // first = latest (sorted DESC)
+      globallyLatestSgtMap[account] = r
+    })
+    const isrAliasesLower = employeeAliases.map(a => a.toLowerCase())
+    const uniqueTierByAccount = {}
+    Object.entries(globallyLatestSgtMap).forEach(([account, r]) => {
+      if (!isActiveTrue(r.is_active)) return
+      const isr = String(r.mapped_isr || '').trim().toLowerCase()
+      // Account must be currently mapped to this employee (globally-latest ownership check)
+      if (!isrAliasesLower.some(alias => isr.startsWith(alias))) return
       uniqueTierByAccount[account] = r.tier
     })
     const activeSgtAccounts = new Set(Object.keys(uniqueTierByAccount))
@@ -888,7 +922,7 @@ export default function PerformanceDashboard() {
     Object.entries(tierCountMap).forEach(([tier, count]) => {
       totalRawPoints += toNumber(count) * toNumber(tierPointsMap[tier])
     })
-    const activeDmiCount = activePrimaryAccounts.length
+    const activeDmiCount = selectedActiveEntries.length  // sum across all selected months (not unique accounts)
     // Use qualified (>=10) account-month sheets to align with mobile DMI multiplier logic.
     const approvedDmisForAverage = activeDmiCount + newDmiCount
     const averageSheetsPerDmi = approvedDmisForAverage > 0 ? parseFloat((approvedSheetsForAverage / approvedDmisForAverage).toFixed(1)) : 0
