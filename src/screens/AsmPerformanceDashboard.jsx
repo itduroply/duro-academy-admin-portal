@@ -403,7 +403,7 @@ export default function AsmPerformanceDashboard() {
   const [selectedFYStart, setSelectedFYStart] = useState(getCurrentFYStart())
   const [selectedQuarters, setSelectedQuarters] = useState([getCurrentQuarterKey()])
   const [selectedMonths, setSelectedMonths] = useState(['All'])
-  const [selectedBranch, setSelectedBranch] = useState(role === 'admin' ? '' : 'All Branches')
+  const [selectedBranch, setSelectedBranch] = useState('All Branches')
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState(null)
   const [detailData, setDetailData] = useState(null)
@@ -451,8 +451,8 @@ export default function AsmPerformanceDashboard() {
     const values = [...new Set(filteredUsers.map(user => String(user.branch_name || '').trim()).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
     
-    // Only add "All Branches" option for super_admin, not for admin
-    return role === 'super_admin' ? ['All Branches', ...values] : values
+    // Keep "All Branches" for both super_admin and admin (admin is still restricted by allowed branches)
+    return ['All Branches', ...values]
   }, [users, role, adminUserBranchId, adminAllowedBranchIds])
 
   const adminAllowedBranchSet = useMemo(() => new Set(adminAllowedBranchIds), [adminAllowedBranchIds])
@@ -469,7 +469,8 @@ export default function AsmPerformanceDashboard() {
         const branchAllowed = adminAllowedBranchSet.size > 0
           ? adminAllowedBranchSet.has(user.branch_id)
           : adminUserBranchId === user.branch_id
-        return matchesSearch && branchAllowed
+        const matchesBranch = selectedBranch === 'All Branches' || String(user.branch_name || '').trim() === selectedBranch
+        return matchesSearch && branchAllowed && matchesBranch
       }
 
       const matchesBranch = selectedBranch === 'All Branches' || String(user.branch_name || '').trim() === selectedBranch
@@ -1895,13 +1896,6 @@ export default function AsmPerformanceDashboard() {
       setAdminAllowedBranchIds([])
     }
   }, [role, authUser?.id])
-
-  // Auto-select first available branch for admin users
-  useEffect(() => {
-    if (role === 'admin' && !selectedBranch && branchOptions.length > 0) {
-      setSelectedBranch(branchOptions[0])
-    }
-  }, [role, branchOptions, selectedBranch])
 
   useEffect(() => {
     setTeamFilter('Team')

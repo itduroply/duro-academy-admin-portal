@@ -187,7 +187,7 @@ export default function PerformanceDashboard() {
   const [selectedFYStart, setSelectedFYStart] = useState(currentFYStart)
   const [selectedQuarters, setSelectedQuarters] = useState([getCurrentQuarterKey()])
   const [selectedMonths, setSelectedMonths] = useState(['All'])
-  const [selectedBranch, setSelectedBranch] = useState(role === 'admin' ? '' : 'All Branches')
+  const [selectedBranch, setSelectedBranch] = useState('All Branches')
 
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState(null)
@@ -226,8 +226,8 @@ export default function PerformanceDashboard() {
     const values = [...new Set(filteredUsers.map(u => String(u.branch_name || '').trim()).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
     
-    // Only add "All Branches" option for super_admin, not for admin
-    return role === 'super_admin' ? ['All Branches', ...values] : values
+    // Keep "All Branches" for both super_admin and admin (admin is still restricted by allowed branches)
+    return ['All Branches', ...values]
   }, [users, role, adminUserBranchId, adminAllowedBranchIds])
 
   const adminAllowedBranchSet = useMemo(() => new Set(adminAllowedBranchIds), [adminAllowedBranchIds])
@@ -241,13 +241,12 @@ export default function PerformanceDashboard() {
       const branch = (u.branch_name || '').trim()
       const matchesSearch = !q || name.includes(q) || email.includes(q) || emp.includes(q)
       
-      // If user is admin, only show users from their assigned branches,
-      // and also apply selectedBranch dropdown filter if one is chosen
+      // Admin can choose a specific branch or All Branches, but always within allowed branches.
       if (role === 'admin') {
         const branchAllowed = adminAllowedBranchSet.size > 0
           ? adminAllowedBranchSet.has(u.branch_id)
           : adminUserBranchId === u.branch_id
-        const matchesBranch = !selectedBranch || branch === selectedBranch
+        const matchesBranch = selectedBranch === 'All Branches' || !selectedBranch || branch === selectedBranch
         return matchesSearch && branchAllowed && matchesBranch
       }
       
@@ -1511,13 +1510,6 @@ export default function PerformanceDashboard() {
       setAdminAllowedBranchIds([])
     }
   }, [role, authUser?.id])
-
-  // Auto-select first available branch for admin users
-  useEffect(() => {
-    if (role === 'admin' && !selectedBranch && branchOptions.length > 0) {
-      setSelectedBranch(branchOptions[0])
-    }
-  }, [role, branchOptions, selectedBranch])
 
   const toggleQuarter = (q) => {
     if (q === 'All') {
