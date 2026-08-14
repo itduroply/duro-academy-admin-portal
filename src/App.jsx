@@ -37,6 +37,7 @@ const PerformanceBranchAccess = lazy(() => import('./screens/PerformanceBranchAc
 const ExcelUpload = lazy(() => import('./screens/ExcelUpload'))
 const SalesDataDownload = lazy(() => import('./screens/SalesDataDownload'))
 const PerformanceMasterUpload = lazy(() => import('./screens/PerformanceMasterUpload'))
+const GoalMaster = lazy(() => import('./screens/GoalMaster'))
 const InfluencerClaimScreen = lazy(() => import('./screens/InfluencerClaimScreen'))
 const InfluencerEnrollmentScreen = lazy(() => import('./screens/InfluencerEnrollmentScreen'))
 const InfluencerVisitScreen = lazy(() => import('./screens/InfluencerVisitScreen'))
@@ -114,6 +115,7 @@ function App() {
             <Route path="/excel-upload" element={<Screen screen={SCREENS.EXCEL_UPLOAD}><ExcelUpload /></Screen>} />
             <Route path="/sales-data-download" element={<Screen screen={SCREENS.SALES_DATA_DOWNLOAD}><SalesDataDownload /></Screen>} />
             <Route path="/performance-master" element={<Screen screen={SCREENS.PERFORMANCE_MASTER}><PerformanceMasterUpload /></Screen>} />
+            <Route path="/goal-master" element={<Screen screen={SCREENS.GOAL_MASTER}><GoalMaster /></Screen>} />
             <Route path="/influencer-claim" element={<Screen screen={SCREENS.INFLUENCER_CLAIM}><InfluencerClaimScreen /></Screen>} />
             <Route path="/influencer-enrollment" element={<Screen screen={SCREENS.INFLUENCER_ENROLLMENT}><InfluencerEnrollmentScreen /></Screen>} />
             <Route path="/influencer-visit" element={<Screen screen={SCREENS.INFLUENCER_VISIT}><InfluencerVisitScreen /></Screen>} />

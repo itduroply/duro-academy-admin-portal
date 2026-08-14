@@ -38,6 +38,7 @@ export const SCREENS = {
   EXCEL_UPLOAD: 'excel-upload',
   SALES_DATA_DOWNLOAD: 'sales-data-download',
   PERFORMANCE_MASTER: 'performance-master',
+  GOAL_MASTER: 'goal-master',
   INFLUENCER_CLAIM: 'influencer-claim',
   INFLUENCER_ENROLLMENT: 'influencer-enrollment',
   INFLUENCER_VISIT: 'influencer-visit',
@@ -83,6 +84,7 @@ export const ROLE_PERMISSIONS = {
     SCREENS.EXCEL_UPLOAD,
     SCREENS.SALES_DATA_DOWNLOAD,
     SCREENS.PERFORMANCE_MASTER,
+    SCREENS.GOAL_MASTER,
     SCREENS.INFLUENCER_CLAIM,
     SCREENS.INFLUENCER_ENROLLMENT,
     SCREENS.INFLUENCER_VISIT,
@@ -124,6 +126,7 @@ export const NAV_ITEMS = [
   { path: '/excel-upload', label: 'Sales Data Upload', icon: 'fa-solid fa-file-excel', screen: SCREENS.EXCEL_UPLOAD },
   { path: '/sales-data-download', label: 'Sales Data Download', icon: 'fa-solid fa-file-arrow-down', screen: SCREENS.SALES_DATA_DOWNLOAD },
   { path: '/performance-master', label: 'Performance Master', icon: 'fa-solid fa-database', screen: SCREENS.PERFORMANCE_MASTER },
+  { path: '/goal-master', label: 'Goal Master', icon: 'fa-solid fa-bullseye', screen: SCREENS.GOAL_MASTER },
   { path: '/holiday', label: 'Holiday Calendar', icon: 'fa-solid fa-calendar-days', screen: SCREENS.HOLIDAY },
   { path: '/onroll-offrole', label: 'Onroll-Offrole', icon: 'fa-solid fa-id-card-clip', screen: SCREENS.ONROLL_OFFROLE },
 ]

@@ -21,6 +21,7 @@ const BREADCRUMB_MAP = {
   '/assign-modules': 'Assign Modules',
   '/admin-permissions': 'Admin Permissions',
   '/performance-branch-access': 'Branch Access',
+  '/goal-master': 'Goal Master',
 }
 
 function AdminLayout() {

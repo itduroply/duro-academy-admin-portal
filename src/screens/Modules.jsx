@@ -44,6 +44,8 @@ function Modules() {
     { label: 'Modules', link: false }
   ]
 
+  const CATEGORIES_CACHE_KEY = 'categories_modules_v1'
+
   // Fetch modules and categories from Supabase
   useEffect(() => {
     mountedRef.current = true
@@ -62,7 +64,7 @@ function Modules() {
 
   const fetchCategories = async () => {
     try {
-      const { data } = await cachedFetch('categories', async () => {
+      const { data } = await cachedFetch(CATEGORIES_CACHE_KEY, async () => {
         const { data, error } = await supabase
           .from('categories')
           .select('*')
@@ -134,6 +136,11 @@ function Modules() {
         setLoading(false)
       }
     }
+  }
+
+  const handleRefresh = async () => {
+    await cacheDelete(CATEGORIES_CACHE_KEY)
+    await Promise.all([fetchCategories(), fetchModules()])
   }
 
   const getCategoryName = (categoryId) => {
@@ -378,7 +385,7 @@ function Modules() {
               <p>Manage, create, and organize all learning modules.</p>
             </div>
             <div className="action-buttons">
-              <button className="btn btn-secondary" onClick={fetchModules}>
+              <button className="btn btn-secondary" onClick={handleRefresh}>
                 <i className="fa-solid fa-arrows-rotate"></i>Refresh
               </button>
               <button className="btn btn-primary" onClick={() => setAddModuleModalOpen(true)}>
