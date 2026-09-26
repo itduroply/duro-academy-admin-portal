@@ -3,13 +3,16 @@ import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import * as XLSX from 'xlsx'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
 import './VideoProgress.css'
 
-function VideoProgress() {
+function VideoProgress({ teamOnly = false, pageTitle = 'Video Progress', pageSubtitle = 'User-wise video completion based on assigned categories' }) {
   const mountedRef = useRef(true)
   const { showNotification } = useNotification()
+  const { user: loggedInUser, role } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const ALL_MANAGERS_VALUE = '__all_reporting_managers__'
 
   // â”€â”€ Raw data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [users, setUsers] = useState([])
@@ -31,6 +34,8 @@ function VideoProgress() {
 
   // â”€â”€ List filters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [searchUser, setSearchUser] = useState('')
+  const [reportingManagerOptions, setReportingManagerOptions] = useState([])
+  const [selectedReportingManager, setSelectedReportingManager] = useState('')
   const [filterDept, setFilterDept] = useState('')
   const [filterBranch, setFilterBranch] = useState('')
   const [listPage, setListPage] = useState(1)
@@ -41,21 +46,108 @@ function VideoProgress() {
     fetchAll()
     return () => { mountedRef.current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [teamOnly, loggedInUser?.id, role, selectedReportingManager])
 
   const fetchAll = async () => {
     try {
       setLoading(true)
       setError(null)
 
+      let managerEmployeeId = null
+      if (teamOnly) {
+        if (!loggedInUser?.id) {
+          if (mountedRef.current) {
+            setUsers([])
+            setError('Unable to determine logged-in user.')
+          }
+          return
+        }
+
+        const { data: me, error: meError } = await supabase
+          .from('users')
+          .select('employee_id, full_name')
+          .eq('id', loggedInUser.id)
+          .single()
+
+        if (meError) throw meError
+
+        managerEmployeeId = String(me?.employee_id || '').trim()
+        if (!managerEmployeeId) {
+          if (mountedRef.current) {
+            setUsers([])
+            setError('Your user profile does not have an employee ID, so team members cannot be mapped.')
+          }
+          return
+        }
+
+        if (role === 'super_admin') {
+          const { data: allUsers, error: allUsersError } = await supabase
+            .from('users')
+            .select('employee_id, full_name, reporting_manager')
+            .order('full_name', { ascending: true })
+
+          if (allUsersError) throw allUsersError
+
+          const rows = Array.isArray(allUsers) ? allUsers : []
+          const nameByEmployeeId = new Map(
+            rows
+              .filter(item => item.employee_id)
+              .map(item => [String(item.employee_id).trim(), item.full_name || String(item.employee_id).trim()])
+          )
+
+          const managerIds = [...new Set(
+            rows
+              .map(item => String(item.reporting_manager || '').trim())
+              .filter(Boolean)
+          )]
+
+          const options = managerIds
+            .map(employeeId => ({
+              employee_id: employeeId,
+              full_name: nameByEmployeeId.get(employeeId) || employeeId,
+            }))
+            .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+
+          if (mountedRef.current) setReportingManagerOptions(options)
+
+          const effectiveSelection = selectedReportingManager || ALL_MANAGERS_VALUE
+          if (!selectedReportingManager && mountedRef.current) {
+            setSelectedReportingManager(ALL_MANAGERS_VALUE)
+          }
+
+          managerEmployeeId = effectiveSelection === ALL_MANAGERS_VALUE ? null : effectiveSelection
+        } else {
+          if (mountedRef.current) {
+            setReportingManagerOptions([{ employee_id: managerEmployeeId, full_name: me?.full_name || 'You' }])
+          }
+          if (selectedReportingManager !== managerEmployeeId && mountedRef.current) {
+            setSelectedReportingManager(managerEmployeeId)
+          }
+        }
+      }
+
       const [
         usersRes, branchesRes, deptsRes, catsRes, modsRes, vidsRes,
         catAccessRes, modAssignRes, progressRes
       ] = await Promise.all([
-        cachedFetch('vp2_users', async () => {
-          const { data, error } = await supabase.from('users')
-            .select('id, full_name, email, employee_id, branch_id, department_id')
+        cachedFetch(`vp2_users_${teamOnly ? `${role || 'admin'}_${managerEmployeeId || 'all'}` : 'all'}`, async () => {
+          let query = supabase.from('users')
+            .select('id, full_name, email, employee_id, branch_id, department_id, reporting_manager')
             .order('full_name')
+
+          if (teamOnly) {
+            if (role === 'super_admin') {
+              if (managerEmployeeId) {
+                query = query.eq('reporting_manager', managerEmployeeId)
+              } else {
+                query = query.not('reporting_manager', 'is', null).neq('reporting_manager', '')
+              }
+            } else {
+              query = query.eq('reporting_manager', managerEmployeeId)
+            }
+          }
+
+          const { data, error } = await query
           if (error) throw error
           return data || []
         }, TTL.MEDIUM),
@@ -200,12 +292,26 @@ function VideoProgress() {
     return users.map(user => {
       const catIds   = deptCatMap.get(user.department_id) || []
       const userProg = userProgressMap.get(user.id) || { completed: new Set() }
+      const mandatoryIds = userMandatoryMap.get(user.id) || new Set()
       let totalVideos = 0, watchedVideos = 0
+      let mandatoryTotal = 0, mandatoryWatched = 0
+      let nonMandatoryTotal = 0, nonMandatoryWatched = 0
       catIds.forEach(catId => {
         ;(catModuleMap.get(catId) || []).forEach(mod => {
           const vids = modVideoMap.get(mod.id) || []
+          const isMandatory = mandatoryIds.has(mod.id)
           totalVideos += vids.length
-          vids.forEach(v => { if (userProg.completed.has(v.id)) watchedVideos++ })
+          vids.forEach(v => {
+            const isWatched = userProg.completed.has(v.id)
+            if (isWatched) watchedVideos++
+            if (isMandatory) {
+              mandatoryTotal++
+              if (isWatched) mandatoryWatched++
+            } else {
+              nonMandatoryTotal++
+              if (isWatched) nonMandatoryWatched++
+            }
+          })
         })
       })
       return {
@@ -216,9 +322,15 @@ function VideoProgress() {
         watchedVideos,
         pendingVideos: totalVideos - watchedVideos,
         progress: totalVideos > 0 ? Math.round((watchedVideos / totalVideos) * 100) : 0,
+        mandatoryTotal,
+        mandatoryWatched,
+        nonMandatoryTotal,
+        nonMandatoryWatched,
+        mandatoryProgress: mandatoryTotal > 0 ? Math.round((mandatoryWatched / mandatoryTotal) * 100) : 0,
+        nonMandatoryProgress: nonMandatoryTotal > 0 ? Math.round((nonMandatoryWatched / nonMandatoryTotal) * 100) : 0,
       }
     })
-  }, [users, deptCatMap, catModuleMap, modVideoMap, userProgressMap, branchMap, deptMap])
+  }, [users, deptCatMap, catModuleMap, modVideoMap, userProgressMap, userMandatoryMap, branchMap, deptMap])
 
   // â”€â”€ Filtered users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const filteredUsers = useMemo(() => {
@@ -399,6 +511,12 @@ function VideoProgress() {
           'Watched': user.watchedVideos,
           'Pending': user.pendingVideos,
           'Progress %': user.progress,
+          'Assigned Mandatory Videos': user.mandatoryTotal,
+          'Completed Mandatory Videos': user.mandatoryWatched,
+          'Mandatory Videos Completion %': user.mandatoryProgress,
+          'Assigned Non-Mandatory Videos': user.nonMandatoryTotal,
+          'Completed Non-Mandatory Videos': user.nonMandatoryWatched,
+          'Non-Mandatory Videos Completion %': user.nonMandatoryProgress,
         }))
         if (rows.length === 0) {
           showNotification('No data to export', 'warning')
@@ -744,8 +862,8 @@ function VideoProgress() {
       {/* Header */}
       <div className="vp-page-header">
         <div>
-          <h2>Video Progress</h2>
-          <p>User-wise video completion based on assigned categories</p>
+          <h2>{pageTitle}</h2>
+          <p>{pageSubtitle}</p>
         </div>
         <div className="vp-header-actions">
           <button className="vp-export-btn vp-quick-btn" onClick={handleQuickReport} disabled={quickExporting || filteredUsers.length === 0} title="Download Quick Summary Report">
@@ -774,6 +892,25 @@ function VideoProgress() {
               onChange={e => setSearchUser(e.target.value)}
             />
           </div>
+          {teamOnly && (
+            <div className="vp-select-wrapper">
+              <select
+                value={selectedReportingManager}
+                onChange={e => setSelectedReportingManager(e.target.value)}
+                disabled={role !== 'super_admin'}
+              >
+                {role === 'super_admin' && (
+                  <option value={ALL_MANAGERS_VALUE}>All Reporting Managers</option>
+                )}
+                {reportingManagerOptions.map(manager => (
+                  <option key={manager.employee_id} value={manager.employee_id}>
+                    {manager.full_name}
+                  </option>
+                ))}
+              </select>
+              <i className="fa-solid fa-chevron-down"></i>
+            </div>
+          )}
           <div className="vp-select-wrapper">
             <select value={filterDept} onChange={e => setFilterDept(e.target.value)}>
               <option value="">All Departments</option>
@@ -789,7 +926,12 @@ function VideoProgress() {
             <i className="fa-solid fa-chevron-down"></i>
           </div>
           {(searchUser || filterDept || filterBranch) && (
-            <button className="vp-reset-btn" onClick={() => { setSearchUser(''); setFilterDept(''); setFilterBranch('') }}>
+            <button className="vp-reset-btn" onClick={() => {
+              setSearchUser('')
+              setFilterDept('')
+              setFilterBranch('')
+              if (teamOnly && role === 'super_admin') setSelectedReportingManager(ALL_MANAGERS_VALUE)
+            }}>
               Clear
             </button>
           )}
@@ -799,13 +941,13 @@ function VideoProgress() {
       {/* Table */}
       <div className="vp-table-card">
         <div className="vp-table-header">
-          <h3>All Users</h3>
+          <h3>{teamOnly ? 'My Team Members' : 'All Users'}</h3>
           <span className="vp-record-badge">{filteredUsers.length} users</span>
         </div>
         {filteredUsers.length === 0 ? (
           <div className="vp-empty">
             <i className="fa-solid fa-users"></i>
-            <p>No users found</p>
+            <p>{teamOnly ? 'No team members found under your reporting hierarchy.' : 'No users found'}</p>
           </div>
         ) : (
           <>

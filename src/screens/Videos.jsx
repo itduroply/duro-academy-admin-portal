@@ -2,11 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREENS } from '../config/permissions'
 import './Videos.css'
 
 function Videos() {
   const mountedRef = useRef(true)
   const { showNotification } = useNotification()
+  const { hasActionAccess } = useAuth()
   const [videos, setVideos] = useState([])
   const [modules, setModules] = useState([])
   const [quizzes, setQuizzes] = useState([])
@@ -45,6 +48,10 @@ function Videos() {
     { label: 'Home', link: true },
     { label: 'Videos', link: false }
   ]
+
+  const canViewVideos = hasActionAccess(SCREENS.VIDEOS, 'view')
+  const canEditVideos = hasActionAccess(SCREENS.VIDEOS, 'edit')
+  const canDeleteVideos = hasActionAccess(SCREENS.VIDEOS, 'delete')
 
   // Helper function to convert HH:MM:SS time to seconds
   const timeToSeconds = (timeStr) => {
@@ -162,12 +169,20 @@ function Videos() {
   }
 
   const openAddModal = () => {
+    if (!canEditVideos) {
+      showNotification('You do not have edit permission for Videos.', 'error')
+      return
+    }
     resetForm()
     setModalOpen(true)
   }
 
   const openEditModal = (video, e) => {
     if (e) e.stopPropagation()
+    if (!canEditVideos) {
+      showNotification('You do not have edit permission for Videos.', 'error')
+      return
+    }
     setFormData({
       title: video.title || '',
       description: video.description || '',
@@ -184,6 +199,11 @@ function Videos() {
   }
 
   const handleSave = async () => {
+    if (!canEditVideos) {
+      showNotification('You do not have edit permission for Videos.', 'error')
+      return
+    }
+
     if (!formData.title.trim()) { showNotification('Please enter a video title', 'warning'); return }
     if (!formData.bunny_video_id.trim()) { showNotification('Please enter the Bunny Video ID', 'warning'); return }
     if (!formData.playback_url.trim()) { showNotification('Please enter the Playback URL', 'warning'); return }
@@ -231,6 +251,10 @@ function Videos() {
 
   const handleDelete = async (videoId, e) => {
     if (e) e.stopPropagation()
+    if (!canDeleteVideos) {
+      showNotification('You do not have delete permission for Videos.', 'error')
+      return
+    }
     if (!confirm('Are you sure you want to delete this video?')) return
 
     try {
@@ -287,7 +311,7 @@ function Videos() {
               <button className="vid-btn vid-btn-secondary" onClick={() => { cacheDelete('videos_list'); fetchVideos() }}>
                 <i className="fa-solid fa-arrows-rotate"></i> Refresh
               </button>
-              <button className="vid-btn vid-btn-primary" onClick={openAddModal}>
+              <button className="vid-btn vid-btn-primary" onClick={openAddModal} disabled={!canEditVideos}>
                 <i className="fa-solid fa-plus"></i> Add Video
               </button>
             </div>
@@ -354,7 +378,7 @@ function Videos() {
                   </thead>
                   <tbody>
                     {paginated.map((video, idx) => (
-                      <tr key={video.id} onClick={() => { setSelectedVideo(video); setDrawerOpen(true) }}>
+                      <tr key={video.id} onClick={() => { if (canViewVideos) { setSelectedVideo(video); setDrawerOpen(true) } }}>
                         <td>{(currentPage - 1) * itemsPerPage + idx + 1}</td>
                         <td>
                           <div className="vid-title-cell">
@@ -372,12 +396,21 @@ function Videos() {
                         <td className="text-center">{video.video_order ?? '—'}</td>
                         <td>{formatDate(video.created_at)}</td>
                         <td className="text-right">
-                          <button className="vid-action-btn vid-edit" onClick={(e) => openEditModal(video, e)} title="Edit">
-                            <i className="fa-solid fa-pen-to-square"></i>
-                          </button>
-                          <button className="vid-action-btn vid-delete" onClick={(e) => handleDelete(video.id, e)} title="Delete">
-                            <i className="fa-solid fa-trash-can"></i>
-                          </button>
+                          {canViewVideos && (
+                            <button className="vid-action-btn" onClick={(e) => { e.stopPropagation(); setSelectedVideo(video); setDrawerOpen(true) }} title="View details">
+                              <i className="fa-solid fa-eye"></i>
+                            </button>
+                          )}
+                          {canEditVideos && (
+                            <button className="vid-action-btn vid-edit" onClick={(e) => openEditModal(video, e)} title="Edit">
+                              <i className="fa-solid fa-pen-to-square"></i>
+                            </button>
+                          )}
+                          {canDeleteVideos && (
+                            <button className="vid-action-btn vid-delete" onClick={(e) => handleDelete(video.id, e)} title="Delete">
+                              <i className="fa-solid fa-trash-can"></i>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -480,10 +513,10 @@ function Videos() {
                 </div>
 
                 <div className="vid-drawer-actions">
-                  <button className="vid-btn vid-btn-secondary" onClick={(e) => openEditModal(selectedVideo, e)}>
+                  <button className="vid-btn vid-btn-secondary" onClick={(e) => openEditModal(selectedVideo, e)} disabled={!canEditVideos}>
                     <i className="fa-solid fa-pen-to-square"></i> Edit
                   </button>
-                  <button className="vid-btn vid-btn-danger" onClick={(e) => handleDelete(selectedVideo.id, e)}>
+                  <button className="vid-btn vid-btn-danger" onClick={(e) => handleDelete(selectedVideo.id, e)} disabled={!canDeleteVideos}>
                     <i className="fa-solid fa-trash-can"></i> Delete
                   </button>
                 </div>
@@ -604,7 +637,7 @@ function Videos() {
                 <button className="vid-btn vid-btn-secondary" onClick={() => { setModalOpen(false); resetForm() }}>
                   Cancel
                 </button>
-                <button className="vid-btn vid-btn-primary" onClick={handleSave} disabled={saving}>
+                <button className="vid-btn vid-btn-primary" onClick={handleSave} disabled={saving || !canEditVideos}>
                   {saving ? (
                     <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</>
                   ) : (

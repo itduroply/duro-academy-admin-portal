@@ -7,7 +7,7 @@ import './AssignPerformanceDashboard.css'
 function AssignPerformanceDashboard() {
   const mountedRef = useRef(true)
   const { showNotification } = useNotification()
-  const ACCESS_TYPE_OPTIONS = ['DGO', 'ASM', 'Calculator']
+  const ACCESS_TYPE_OPTIONS = ['DGO', 'ASM', 'SM', 'DBM', 'Calculator']
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

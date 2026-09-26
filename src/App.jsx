@@ -22,6 +22,7 @@ const Notifications = lazy(() => import('./screens/Notifications'))
 const QuizBuilder = lazy(() => import('./screens/QuizBuilder'))
 const AssignmentResults = lazy(() => import('./screens/AssignmentResults'))
 const VideoProgress = lazy(() => import('./screens/VideoProgress'))
+const TeamPerformance = lazy(() => import('./screens/TeamPerformance'))
 const ActiveLogins = lazy(() => import('./screens/ActiveLogins'))
 const VideoProgressScheduler = lazy(() => import('./screens/VideoProgressScheduler'))
 const OrgChart = lazy(() => import('./screens/OrgChart'))
@@ -38,6 +39,8 @@ const ExcelUpload = lazy(() => import('./screens/ExcelUpload'))
 const SalesDataDownload = lazy(() => import('./screens/SalesDataDownload'))
 const PerformanceMasterUpload = lazy(() => import('./screens/PerformanceMasterUpload'))
 const GoalMaster = lazy(() => import('./screens/GoalMaster'))
+const CombinedPerformanceDashboard = lazy(() => import('./screens/CombinedPerformanceDashboard'))
+const DBMSMPerformanceDashboard = lazy(() => import('./screens/DBMSMPerformanceDashboard'))
 const InfluencerClaimScreen = lazy(() => import('./screens/InfluencerClaimScreen'))
 const InfluencerEnrollmentScreen = lazy(() => import('./screens/InfluencerEnrollmentScreen'))
 const InfluencerVisitScreen = lazy(() => import('./screens/InfluencerVisitScreen'))
@@ -46,6 +49,7 @@ const LeadTaskScreen = lazy(() => import('./screens/LeadTaskScreen'))
 const MasterEnrollmentScreen = lazy(() => import('./screens/MasterEnrollmentScreen'))
 const HolidayScreen = lazy(() => import('./screens/HolidayScreen'))
 const OnrollOffrole = lazy(() => import('./screens/OnrollOffrole'))
+const DealerManagement = lazy(() => import('./screens/DealerManagement'))
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -103,6 +107,7 @@ function App() {
             <Route path="/notifications" element={<Screen screen={SCREENS.NOTIFICATIONS}><Notifications /></Screen>} />
             <Route path="/assignment-results" element={<Screen screen={SCREENS.ASSIGNMENT_RESULTS}><AssignmentResults /></Screen>} />
             <Route path="/video-progress" element={<Screen screen={SCREENS.VIDEO_PROGRESS}><VideoProgress /></Screen>} />
+            <Route path="/team-performance" element={<Screen screen={SCREENS.TEAM_PERFORMANCE}><TeamPerformance /></Screen>} />
               <Route path="/video-progress-scheduler" element={<Screen screen={SCREENS.VIDEO_PROGRESS_SCHEDULER}><VideoProgressScheduler /></Screen>} />
             <Route path="/org-chart" element={<Screen screen={SCREENS.ORG_CHART}><OrgChart /></Screen>} />
               <Route path="/master-data" element={<Screen screen={SCREENS.MASTER_DATA}><MasterDataManagement /></Screen>} />
@@ -111,6 +116,8 @@ function App() {
             <Route path="/assign-performance-dashboard" element={<Screen screen={SCREENS.ASSIGN_PERFORMANCE_DASHBOARD}><AssignPerformanceDashboard /></Screen>} />
             <Route path="/performance-dashboard" element={<Screen screen={SCREENS.PERFORMANCE_DASHBOARD}><PerformanceDashboard /></Screen>} />
             <Route path="/asm-performance-dashboard" element={<Screen screen={SCREENS.ASM_PERFORMANCE_DASHBOARD}><AsmPerformanceDashboard /></Screen>} />
+            <Route path="/combined-performance-dashboard" element={<Screen screen={SCREENS.COMBINED_PERFORMANCE_DASHBOARD}><CombinedPerformanceDashboard /></Screen>} />
+            <Route path="/dbm-sm-performance-dashboard" element={<Screen screen={SCREENS.DBM_SM_PERFORMANCE_DASHBOARD}><DBMSMPerformanceDashboard /></Screen>} />
             <Route path="/performance-branch-access" element={<Screen screen={SCREENS.PERFORMANCE_BRANCH_ACCESS}><PerformanceBranchAccess /></Screen>} />
             <Route path="/excel-upload" element={<Screen screen={SCREENS.EXCEL_UPLOAD}><ExcelUpload /></Screen>} />
             <Route path="/sales-data-download" element={<Screen screen={SCREENS.SALES_DATA_DOWNLOAD}><SalesDataDownload /></Screen>} />
@@ -124,6 +131,7 @@ function App() {
             <Route path="/master-enrollment" element={<Screen screen={SCREENS.MASTER_ENROLLMENT}><MasterEnrollmentScreen /></Screen>} />
             <Route path="/holiday" element={<Screen screen={SCREENS.HOLIDAY}><HolidayScreen /></Screen>} />
             <Route path="/onroll-offrole" element={<Screen screen={SCREENS.ONROLL_OFFROLE}><OnrollOffrole /></Screen>} />
+            <Route path="/dealer-management" element={<Screen screen={SCREENS.DEALER_MANAGEMENT}><DealerManagement /></Screen>} />
             <Route path="/category-access" element={<Screen screen={SCREENS.CATEGORY_ACCESS}><CategoryAccess /></Screen>} />
             <Route path="/admin-permissions" element={<Screen screen={SCREENS.ADMIN_PERMISSIONS}><AdminPermissions /></Screen>} />
           </Route>

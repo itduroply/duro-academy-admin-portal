@@ -22,6 +22,7 @@ export const SCREENS = {
   QUIZ_BUILDER: 'quiz-builder',
   ASSIGNMENT_RESULTS: 'assignment-results',
   VIDEO_PROGRESS: 'video-progress',
+  TEAM_PERFORMANCE: 'team-performance',
   ACTIVE_LOGINS: 'active-logins',
   VIDEO_PROGRESS_SCHEDULER: 'video-progress-scheduler',
   ORG_CHART: 'org-chart',
@@ -30,6 +31,8 @@ export const SCREENS = {
   ASSIGN_PERFORMANCE_DASHBOARD: 'assign-performance-dashboard',
   PERFORMANCE_DASHBOARD: 'performance-dashboard',
   ASM_PERFORMANCE_DASHBOARD: 'asm-performance-dashboard',
+  COMBINED_PERFORMANCE_DASHBOARD: 'combined-performance-dashboard',
+  DBM_SM_PERFORMANCE_DASHBOARD: 'dbm-sm-performance-dashboard',
   PERFORMANCE_BRANCH_ACCESS: 'performance-branch-access',
   CATEGORY_ACCESS: 'category-access',
   ANALYTICS: 'analytics',
@@ -47,6 +50,7 @@ export const SCREENS = {
   MASTER_ENROLLMENT: 'master-enrollment',
   HOLIDAY: 'holiday',
   ONROLL_OFFROLE: 'onroll-offrole',
+  DEALER_MANAGEMENT: 'dealer-management',
 }
 
 // Allowed roles that can access the admin panel
@@ -72,6 +76,7 @@ export const ROLE_PERMISSIONS = {
     SCREENS.QUIZ_BUILDER,
     SCREENS.ASSIGNMENT_RESULTS,
     SCREENS.VIDEO_PROGRESS,
+    SCREENS.TEAM_PERFORMANCE,
     SCREENS.ASSIGN_MODULES,
     SCREENS.VIDEO_PROGRESS_SCHEDULER,
     SCREENS.ORG_CHART,
@@ -79,6 +84,8 @@ export const ROLE_PERMISSIONS = {
     SCREENS.ASSIGN_PERFORMANCE_DASHBOARD,
     SCREENS.PERFORMANCE_DASHBOARD,
     SCREENS.ASM_PERFORMANCE_DASHBOARD,
+    SCREENS.COMBINED_PERFORMANCE_DASHBOARD,
+    SCREENS.DBM_SM_PERFORMANCE_DASHBOARD,
     SCREENS.PERFORMANCE_BRANCH_ACCESS,
     SCREENS.CATEGORY_ACCESS,
     SCREENS.EXCEL_UPLOAD,
@@ -93,6 +100,7 @@ export const ROLE_PERMISSIONS = {
     SCREENS.MASTER_ENROLLMENT,
     SCREENS.HOLIDAY,
     SCREENS.ONROLL_OFFROLE,
+    SCREENS.DEALER_MANAGEMENT,
   ],
 }
 
@@ -111,16 +119,19 @@ export const NAV_ITEMS = [
   { path: '/assessments', label: 'Assessments', icon: 'fa-solid fa-clipboard-question', screen: SCREENS.ASSESSMENTS },
   { path: '/assignment-results', label: 'Assignment Results', icon: 'fa-solid fa-clipboard-list', screen: SCREENS.ASSIGNMENT_RESULTS },
   { path: '/video-progress', label: 'Video Progress', icon: 'fa-solid fa-play-circle', screen: SCREENS.VIDEO_PROGRESS },
+  { path: '/team-performance', label: 'Team Performance', icon: 'fa-solid fa-users-line', screen: SCREENS.TEAM_PERFORMANCE },
   { path: '/video-progress-scheduler', label: 'Video Progress Scheduler', icon: 'fa-solid fa-clock', screen: SCREENS.VIDEO_PROGRESS_SCHEDULER },
   { path: '/org-chart', label: 'Org Chart', icon: 'fa-solid fa-diagram-project', screen: SCREENS.ORG_CHART },
   { path: '/master-data', label: 'Master Data', icon: 'fa-solid fa-table-list', screen: SCREENS.MASTER_DATA },
   { path: '/active-logins', label: 'Active Logins', icon: 'fa-solid fa-right-to-bracket', screen: SCREENS.ACTIVE_LOGINS },
-  { path: '/assign-modules', label: 'Assign Modules', icon: 'fa-solid fa-tasks', screen: SCREENS.ASSIGN_MODULES },
+  { path: '/category-access', label: 'Module Management', icon: 'fa-solid fa-layer-group', screen: SCREENS.CATEGORY_ACCESS },
+  { path: '/assign-modules', label: 'Mandatory Modules', icon: 'fa-solid fa-tasks', screen: SCREENS.ASSIGN_MODULES },
   { path: '/assign-performance-dashboard', label: 'Assign Performance', icon: 'fa-solid fa-chart-bar', screen: SCREENS.ASSIGN_PERFORMANCE_DASHBOARD },
   { path: '/performance-dashboard', label: 'DURO Lakshya Dashboard', icon: 'fa-solid fa-chart-bar', screen: SCREENS.PERFORMANCE_DASHBOARD },
   { path: '/asm-performance-dashboard', label: 'DURO Lakshya Dashboard ASM', icon: 'fa-solid fa-users-viewfinder', screen: SCREENS.ASM_PERFORMANCE_DASHBOARD },
+  { path: '/combined-performance-dashboard', label: 'Combined Performance', icon: 'fa-solid fa-layer-group', screen: SCREENS.COMBINED_PERFORMANCE_DASHBOARD },
+  { path: '/dbm-sm-performance-dashboard', label: 'DBM & SM Performance', icon: 'fa-solid fa-people-group', screen: SCREENS.DBM_SM_PERFORMANCE_DASHBOARD },
   { path: '/performance-branch-access', label: 'Branch Access', icon: 'fa-solid fa-sitemap', screen: SCREENS.PERFORMANCE_BRANCH_ACCESS },
-  { path: '/category-access', label: 'Category Access', icon: 'fa-solid fa-layer-group', screen: SCREENS.CATEGORY_ACCESS },
   { path: '/admin-permissions', label: 'Admin Permissions', icon: 'fa-solid fa-shield-halved', screen: SCREENS.ADMIN_PERMISSIONS },
   { path: '/analytics', label: 'Analytics', icon: 'fa-solid fa-chart-line', screen: SCREENS.ANALYTICS },
   { path: '/excel-upload', label: 'Sales Data Upload', icon: 'fa-solid fa-file-excel', screen: SCREENS.EXCEL_UPLOAD },
@@ -129,6 +140,7 @@ export const NAV_ITEMS = [
   { path: '/goal-master', label: 'Goal Master', icon: 'fa-solid fa-bullseye', screen: SCREENS.GOAL_MASTER },
   { path: '/holiday', label: 'Holiday Calendar', icon: 'fa-solid fa-calendar-days', screen: SCREENS.HOLIDAY },
   { path: '/onroll-offrole', label: 'Onroll-Offrole', icon: 'fa-solid fa-id-card-clip', screen: SCREENS.ONROLL_OFFROLE },
+  { path: '/dealer-management', label: 'Dealer Management', icon: 'fa-solid fa-handshake', screen: SCREENS.DEALER_MANAGEMENT },
 ]
 
 export const NAV_ITEM_BY_SCREEN = NAV_ITEMS.reduce((accumulator, item) => {

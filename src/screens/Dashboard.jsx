@@ -146,31 +146,9 @@ function Dashboard() {
   const fetchWeeklySignups = async () => {
     try {
       console.log('[Dashboard] Fetching weekly signups...')
-      
-      // ✅ Try to use SQL RPC first (much faster - aggregates on server)
-      try {
-        const { data: rpcData, error: rpcError } = await supabase.rpc('get_weekly_signups')
-        
-        if (!rpcError && rpcData) {
-          console.log('[Dashboard] Using RPC for weekly signups (server-aggregated)')
-          const weekCounts = [0, 0, 0, 0, 0, 0, 0]
-          rpcData.forEach(row => {
-            if (row.week_index >= 0 && row.week_index < 7) {
-              weekCounts[row.week_index] = Number(row.count) || 0
-            }
-          })
-          
-          if (mountedRef.current) {
-            setWeeklySignups(weekCounts)
-            console.log('[Dashboard] Weekly signups loaded:', weekCounts)
-          }
-          return
-        }
-      } catch (rpcError) {
-        console.log('[Dashboard] RPC not available, using client-side aggregation')
-      }
 
-      // Fallback: Client-side aggregation (slower but works without RPC)
+      // The database RPC is not available in the current Supabase project, so use
+      // the safe client-side fallback instead of triggering a missing-function error.
       const weeksAgo = new Date()
       weeksAgo.setDate(weeksAgo.getDate() - 49) // 7 weeks = 49 days
 

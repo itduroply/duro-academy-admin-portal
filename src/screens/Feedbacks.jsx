@@ -2,10 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { useNotification } from '../contexts/NotificationContext'
 import { cacheSet, cacheGet, cachedFetch, TTL } from '../utils/cacheDB'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREENS } from '../config/permissions'
 import './Feedbacks.css'
 
 function Feedbacks() {
   const mountedRef = useRef(true)
+  const { hasActionAccess } = useAuth()
   const [feedbacks, setFeedbacks] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -15,6 +18,9 @@ function Feedbacks() {
   const [selected, setSelected] = useState(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  const canViewFeedbacks = hasActionAccess(SCREENS.FEEDBACKS, 'view')
+  const canDeleteFeedbacks = hasActionAccess(SCREENS.FEEDBACKS, 'delete')
 
   const breadcrumbItems = [
     { label: 'Home', link: true },
@@ -103,6 +109,11 @@ function Feedbacks() {
   }
 
   const openPanel = (fb) => {
+    if (!canViewFeedbacks) {
+      showNotification('You do not have view permission for Feedback.', 'error')
+      return
+    }
+
     setSelected(fb)
     setPanelOpen(true)
   }
@@ -115,6 +126,11 @@ function Feedbacks() {
   }
 
   const handleDelete = async (id) => {
+    if (!canDeleteFeedbacks) {
+      showNotification('You do not have delete permission for Feedback.', 'error')
+      return
+    }
+
     if (!window.confirm('Delete this feedback?')) return
     setDeleting(true)
     try {
@@ -215,13 +231,15 @@ function Feedbacks() {
                         <td className="truncate">{f.content}</td>
                         <td>{formatDate(f.created_at)}</td>
                         <td className="center">
-                          <button
-                            className="btn-icon"
-                            title="View"
-                            onClick={(e) => { e.stopPropagation(); openPanel(f) }}
-                          >
-                            <i className="fa-solid fa-eye" />
-                          </button>
+                          {canViewFeedbacks && (
+                            <button
+                              className="btn-icon"
+                              title="View"
+                              onClick={(e) => { e.stopPropagation(); openPanel(f) }}
+                            >
+                              <i className="fa-solid fa-eye" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )
@@ -271,7 +289,7 @@ function Feedbacks() {
               </div>
             </div>
             <div className="panel-footer">
-              <button className="btn-danger w-full" disabled={deleting} onClick={() => handleDelete(selected.id)}>
+              <button className="btn-danger w-full" disabled={deleting || !canDeleteFeedbacks} onClick={() => handleDelete(selected.id)}>
                 <i className="fa-solid fa-trash"></i> {deleting ? 'Deleting...' : 'Delete Feedback'}
               </button>
             </div>

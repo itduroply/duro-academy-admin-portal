@@ -2,24 +2,34 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREENS } from '../config/permissions'
 import './CategoryAccess.css'
 
 function CategoryAccess() {
   const mountedRef = useRef(true)
   const [loading, setLoading] = useState(true)
   const { showNotification } = useNotification()
+  const { hasActionAccess } = useAuth()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
   const [categories, setCategories] = useState([])
+  const [modules, setModules] = useState([])
   const [departments, setDepartments] = useState([])
   const [assignments, setAssignments] = useState([])
+  const [mandatoryAssignments, setMandatoryAssignments] = useState([])
 
   const [assignModalOpen, setAssignModalOpen] = useState(false)
   const [selectedDepartments, setSelectedDepartments] = useState([])
   const [selectedCategories, setSelectedCategories] = useState([])
+  const [selectedMandatoryModules, setSelectedMandatoryModules] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [moduleSearchTerm, setModuleSearchTerm] = useState('')
   const [editingDeptId, setEditingDeptId] = useState(null)
+
+  const canEditCategoryAccess = hasActionAccess(SCREENS.CATEGORY_ACCESS, 'edit')
+  const canDeleteCategoryAccess = hasActionAccess(SCREENS.CATEGORY_ACCESS, 'delete')
 
   useEffect(() => {
     mountedRef.current = true
@@ -27,6 +37,11 @@ function CategoryAccess() {
     return () => { mountedRef.current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const isMissingMandatoryTableError = (error) => {
+    const message = String(error?.message || '').toLowerCase()
+    return error?.code === '42P01' || message.includes('department_mandatory_modules')
+  }
 
   const fetchAllRows = async (table, select, orderCol) => {
     const PAGE_SIZE = 1000
@@ -54,7 +69,7 @@ function CategoryAccess() {
       setLoading(true)
       setError(null)
 
-      const [categoriesResult, departmentsResult] = await Promise.all([
+      const [categoriesResult, departmentsResult, modulesResult] = await Promise.all([
         cachedFetch('categories_ca', async () => {
           const { data, error } = await supabase
             .from('categories')
@@ -71,6 +86,14 @@ function CategoryAccess() {
           if (error) throw error
           return data || []
         }, TTL.LONG),
+        cachedFetch('modules_ca', async () => {
+          const { data, error } = await supabase
+            .from('modules')
+            .select('id, title, category_id')
+            .order('title', { ascending: true })
+          if (error) throw error
+          return data || []
+        }, TTL.SHORT),
       ])
 
       if (!mountedRef.current) return
@@ -79,8 +102,11 @@ function CategoryAccess() {
       setCategories(Array.isArray(cats) ? cats : [])
       const depts = departmentsResult?.data || departmentsResult || []
       setDepartments(Array.isArray(depts) ? depts : [])
+      const moduleRows = modulesResult?.data || modulesResult || []
+      setModules(Array.isArray(moduleRows) ? moduleRows : [])
 
       await fetchAssignments()
+      await fetchMandatoryAssignments()
     } catch (err) {
       console.error('[CategoryAccess] Error fetching data:', err)
       if (mountedRef.current) setError(err.message)
@@ -98,10 +124,36 @@ function CategoryAccess() {
     }
   }
 
+  const fetchMandatoryAssignments = async () => {
+    try {
+      const data = await fetchAllRows('department_mandatory_modules', 'id, department_id, module_id, created_at', 'created_at')
+      if (mountedRef.current) setMandatoryAssignments(Array.isArray(data) ? data : [])
+    } catch (err) {
+      if (!isMissingMandatoryTableError(err)) {
+        console.error('[CategoryAccess] Error fetching mandatory mappings:', err)
+      }
+      if (mountedRef.current) setMandatoryAssignments([])
+    }
+  }
+
   // Group assignments by department
   const groupedByDept = useMemo(() => {
     const deptMap = new Map(departments.map(d => [d.id, d]))
     const catMap = new Map(categories.map(c => [c.id, c]))
+    const moduleMap = new Map(modules.map(m => [m.id, m]))
+    const mandatoryByDept = mandatoryAssignments.reduce((accumulator, row) => {
+      const key = row.department_id
+      if (!accumulator[key]) accumulator[key] = []
+      const moduleRow = moduleMap.get(row.module_id)
+      accumulator[key].push({
+        id: row.id,
+        module_id: row.module_id,
+        module_title: moduleRow?.title || 'Unknown Module',
+        category_id: moduleRow?.category_id || null,
+      })
+      return accumulator
+    }, {})
+
     const grouped = {}
 
     assignments.forEach(a => {
@@ -125,8 +177,27 @@ function CategoryAccess() {
       grouped[dId].assignmentIds.push(a.id)
     })
 
+    Object.keys(mandatoryByDept).forEach((deptKey) => {
+      if (!grouped[deptKey]) {
+        const dept = deptMap.get(Number(deptKey))
+        grouped[deptKey] = {
+          department_id: Number(deptKey),
+          department_name: dept?.department_name || 'Unknown Department',
+          categories: [],
+          assignmentIds: [],
+          mandatoryModules: [],
+        }
+      }
+      grouped[deptKey].mandatoryModules = mandatoryByDept[deptKey]
+    })
+
+    Object.values(grouped).forEach((row) => {
+      if (!row.mandatoryModules) row.mandatoryModules = []
+      row.mandatoryModules.sort((a, b) => a.module_title.localeCompare(b.module_title))
+    })
+
     return Object.values(grouped).sort((a, b) => a.department_name.localeCompare(b.department_name))
-  }, [assignments, departments, categories])
+  }, [assignments, mandatoryAssignments, departments, categories, modules])
 
   // Filter
   const filteredGroups = useMemo(() => {
@@ -149,17 +220,25 @@ function CategoryAccess() {
   }, [departments, assignments, editingDeptId])
 
   const openAssignModal = (deptGroup = null) => {
+    if (!canEditCategoryAccess) {
+      showNotification('You do not have edit permission for Module Management.', 'error')
+      return
+    }
+
     if (deptGroup) {
       // Edit mode — single dept locked
       setEditingDeptId(deptGroup.department_id)
       setSelectedDepartments([deptGroup.department_id])
       setSelectedCategories(deptGroup.categories.map(c => c.category_id))
+      setSelectedMandatoryModules((deptGroup.mandatoryModules || []).map(m => m.module_id))
     } else {
       // New mode — multi-select
       setEditingDeptId(null)
       setSelectedDepartments([])
       setSelectedCategories([])
+      setSelectedMandatoryModules([])
     }
+    setModuleSearchTerm('')
     setAssignModalOpen(true)
   }
 
@@ -191,8 +270,46 @@ function CategoryAccess() {
     }
   }
 
+  const filteredMandatoryModules = useMemo(() => {
+    const selectedCategorySet = new Set(selectedCategories)
+    const search = moduleSearchTerm.trim().toLowerCase()
+    return modules.filter(module => {
+      const inSelectedCategory = selectedCategorySet.size === 0 || selectedCategorySet.has(module.category_id)
+      const inSearch = !search || (module.title || '').toLowerCase().includes(search)
+      return inSelectedCategory && inSearch
+    })
+  }, [modules, selectedCategories, moduleSearchTerm])
+
+  useEffect(() => {
+    const allowedIds = new Set(filteredMandatoryModules.map(module => module.id))
+    setSelectedMandatoryModules(prev => prev.filter(moduleId => allowedIds.has(moduleId)))
+  }, [filteredMandatoryModules])
+
+  const handleMandatoryModuleToggle = (moduleId) => {
+    setSelectedMandatoryModules(prev =>
+      prev.includes(moduleId)
+        ? prev.filter(id => id !== moduleId)
+        : [...prev, moduleId]
+    )
+  }
+
+  const handleSelectAllMandatoryModules = () => {
+    const filteredIds = filteredMandatoryModules.map(module => module.id)
+    const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedMandatoryModules.includes(id))
+    if (allSelected) {
+      setSelectedMandatoryModules(prev => prev.filter(id => !filteredIds.includes(id)))
+      return
+    }
+    setSelectedMandatoryModules(prev => [...new Set([...prev, ...filteredIds])])
+  }
+
   const handleSave = async (e) => {
     e.preventDefault()
+
+    if (!canEditCategoryAccess) {
+      showNotification('You do not have edit permission for Module Management.', 'error')
+      return
+    }
 
     if (selectedDepartments.length === 0) {
       showNotification('Please select at least one department', 'warning')
@@ -222,6 +339,27 @@ function CategoryAccess() {
           .from('category_department_access')
           .insert(rows)
         if (insError) throw insError
+
+        try {
+          const { error: delMandatoryError } = await supabase
+            .from('department_mandatory_modules')
+            .delete()
+            .eq('department_id', editingDeptId)
+          if (delMandatoryError) throw delMandatoryError
+
+          if (selectedMandatoryModules.length > 0) {
+            const mandatoryRows = selectedMandatoryModules.map(moduleId => ({
+              department_id: editingDeptId,
+              module_id: moduleId,
+            }))
+            const { error: upsertMandatoryError } = await supabase
+              .from('department_mandatory_modules')
+              .upsert(mandatoryRows, { onConflict: 'department_id,module_id' })
+            if (upsertMandatoryError) throw upsertMandatoryError
+          }
+        } catch (mandatoryError) {
+          if (!isMissingMandatoryTableError(mandatoryError)) throw mandatoryError
+        }
       } else {
         // New mode — insert for every selected department
         for (const deptId of selectedDepartments) {
@@ -233,16 +371,34 @@ function CategoryAccess() {
             .from('category_department_access')
             .insert(rows)
           if (insError) throw insError
+
+          try {
+            if (selectedMandatoryModules.length > 0) {
+              const mandatoryRows = selectedMandatoryModules.map(moduleId => ({
+                department_id: deptId,
+                module_id: moduleId,
+              }))
+              const { error: upsertMandatoryError } = await supabase
+                .from('department_mandatory_modules')
+                .upsert(mandatoryRows, { onConflict: 'department_id,module_id' })
+              if (upsertMandatoryError) throw upsertMandatoryError
+            }
+          } catch (mandatoryError) {
+            if (!isMissingMandatoryTableError(mandatoryError)) throw mandatoryError
+          }
         }
       }
 
-      showNotification(editingDeptId ? 'Category access updated!' : 'Categories assigned successfully!', 'success')
+      showNotification(editingDeptId ? 'Module management updated!' : 'Categories assigned successfully!', 'success')
       setAssignModalOpen(false)
       setEditingDeptId(null)
       setSelectedDepartments([])
       setSelectedCategories([])
+      setSelectedMandatoryModules([])
+      setModuleSearchTerm('')
       await cacheDelete('category_dept_access')
       await fetchAssignments()
+      await fetchMandatoryAssignments()
     } catch (err) {
       console.error('[CategoryAccess] Save error:', err)
       showNotification('Error: ' + err.message, 'error')
@@ -252,7 +408,12 @@ function CategoryAccess() {
   }
 
   const handleDeleteDeptAccess = async (deptId) => {
-    if (!confirm('Remove ALL category access for this department?')) return
+    if (!canDeleteCategoryAccess) {
+      showNotification('You do not have delete permission for Module Management.', 'error')
+      return
+    }
+
+    if (!confirm('Remove ALL module access for this department?')) return
     try {
       setSaving(true)
       const { error } = await supabase
@@ -260,9 +421,21 @@ function CategoryAccess() {
         .delete()
         .eq('department_id', deptId)
       if (error) throw error
-      showNotification('Category access removed!', 'success')
+
+      try {
+        const { error: mandatoryError } = await supabase
+          .from('department_mandatory_modules')
+          .delete()
+          .eq('department_id', deptId)
+        if (mandatoryError) throw mandatoryError
+      } catch (mandatoryDeleteError) {
+        if (!isMissingMandatoryTableError(mandatoryDeleteError)) throw mandatoryDeleteError
+      }
+
+      showNotification('Module access removed!', 'success')
       await cacheDelete('category_dept_access')
       await fetchAssignments()
+      await fetchMandatoryAssignments()
     } catch (err) {
       console.error('[CategoryAccess] Delete error:', err)
       showNotification('Error: ' + err.message, 'error')
@@ -272,6 +445,11 @@ function CategoryAccess() {
   }
 
   const handleDeleteSingle = async (assignmentId) => {
+    if (!canDeleteCategoryAccess) {
+      showNotification('You do not have delete permission for Module Management.', 'error')
+      return
+    }
+
     if (!confirm('Remove this category assignment?')) return
     try {
       setSaving(true)
@@ -311,14 +489,14 @@ function CategoryAccess() {
         {/* Header */}
         <section className="ca-header">
           <div>
-            <h2>Category Access</h2>
+            <h2>Module Management</h2>
             <p>Assign categories to departments so users see content relevant to their department</p>
           </div>
           <div className="ca-actions">
             <button className="btn btn-secondary" onClick={fetchAllData} disabled={loading}>
               <i className={`fa-solid fa-refresh ${loading ? 'fa-spin' : ''}`}></i> Refresh
             </button>
-            <button className="btn btn-primary" onClick={() => openAssignModal()}>
+            <button className="btn btn-primary" onClick={() => openAssignModal()} disabled={!canEditCategoryAccess}>
               <i className="fa-solid fa-plus"></i> Assign Categories
             </button>
           </div>
@@ -365,8 +543,8 @@ function CategoryAccess() {
               <i className="fa-solid fa-check-double"></i>
             </div>
             <div>
-              <p className="ca-kpi-label">Departments Assigned</p>
-              <h3 className="ca-kpi-value">{groupedByDept.length}</h3>
+              <p className="ca-kpi-label">Mandatory Modules</p>
+              <h3 className="ca-kpi-value">{mandatoryAssignments.length}</h3>
             </div>
           </div>
         </div>
@@ -395,7 +573,7 @@ function CategoryAccess() {
             <div className="ca-empty">
               <i className="fa-solid fa-layer-group"></i>
               <p>No category assignments found</p>
-              <button className="btn btn-primary" onClick={() => openAssignModal()}>
+              <button className="btn btn-primary" onClick={() => openAssignModal()} disabled={!canEditCategoryAccess}>
                 <i className="fa-solid fa-plus"></i> Create First Assignment
               </button>
             </div>
@@ -407,6 +585,7 @@ function CategoryAccess() {
                     <th>#</th>
                     <th>Department</th>
                     <th>Categories</th>
+                    <th>Mandatory Modules</th>
                     <th>Count</th>
                     <th>Actions</th>
                   </tr>
@@ -429,16 +608,33 @@ function CategoryAccess() {
                         </div>
                       </td>
                       <td>
+                        <div className="ca-cat-tags">
+                          {(group.mandatoryModules || []).slice(0, 3).map(module => (
+                            <span key={module.module_id} className="ca-cat-tag">{module.module_title}</span>
+                          ))}
+                          {(group.mandatoryModules || []).length > 3 && (
+                            <span className="ca-cat-tag ca-cat-more">+{group.mandatoryModules.length - 3} more</span>
+                          )}
+                          {(group.mandatoryModules || []).length === 0 && (
+                            <span style={{ color: '#94A3B8' }}>-</span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
                         <span className="ca-count-pill">{group.categories.length}</span>
                       </td>
                       <td>
                         <div className="ca-row-actions">
-                          <button className="btn-icon btn-view" onClick={() => openAssignModal(group)} title="Edit">
-                            <i className="fa-solid fa-pen-to-square"></i>
-                          </button>
-                          <button className="btn-icon btn-delete" onClick={() => handleDeleteDeptAccess(group.department_id)} title="Delete all">
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
+                          {canEditCategoryAccess && (
+                            <button className="btn-icon btn-view" onClick={() => openAssignModal(group)} title="Edit">
+                              <i className="fa-solid fa-pen-to-square"></i>
+                            </button>
+                          )}
+                          {canDeleteCategoryAccess && (
+                            <button className="btn-icon btn-delete" onClick={() => handleDeleteDeptAccess(group.department_id)} title="Delete all">
+                              <i className="fa-solid fa-trash"></i>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -455,7 +651,7 @@ function CategoryAccess() {
         <div className="ca-modal-backdrop" onClick={() => { setAssignModalOpen(false); setEditingDeptId(null) }}>
           <div className="ca-modal" onClick={e => e.stopPropagation()}>
             <div className="ca-modal-header">
-              <h3>{editingDeptId ? 'Edit Category Access' : 'Assign Categories to Department'}</h3>
+              <h3>{editingDeptId ? 'Edit Module Management' : 'Assign Categories to Department'}</h3>
               <button onClick={() => { setAssignModalOpen(false); setEditingDeptId(null) }}>
                 <i className="fa-solid fa-times"></i>
               </button>
@@ -534,13 +730,56 @@ function CategoryAccess() {
                     </small>
                   )}
                 </div>
+
+                {/* Mandatory Modules (per department) */}
+                <div className="ca-form-group">
+                  <label>
+                    Mandatory Modules (Optional)
+                    <button type="button" className="ca-select-all-btn" onClick={handleSelectAllMandatoryModules}>
+                      Select All Visible
+                    </button>
+                  </label>
+
+                  <input
+                    type="text"
+                    placeholder="Search mandatory modules..."
+                    value={moduleSearchTerm}
+                    onChange={(e) => setModuleSearchTerm(e.target.value)}
+                    style={{ marginBottom: '0.5rem' }}
+                  />
+
+                  <div className="ca-cat-list">
+                    {filteredMandatoryModules.length === 0 ? (
+                      <p style={{ color: '#6B7280', fontSize: '0.875rem', padding: '0.5rem' }}>
+                        No modules found for selected categories.
+                      </p>
+                    ) : (
+                      filteredMandatoryModules.map(module => (
+                        <label key={module.id} className="ca-cat-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedMandatoryModules.includes(module.id)}
+                            onChange={() => handleMandatoryModuleToggle(module.id)}
+                          />
+                          <span className="ca-cat-checkbox-label">{module.title}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+
+                  {selectedMandatoryModules.length > 0 && (
+                    <small style={{ color: '#4F46E5', marginTop: '0.5rem', display: 'block' }}>
+                      {selectedMandatoryModules.length} mandatory module{selectedMandatoryModules.length !== 1 ? 's' : ''} selected
+                    </small>
+                  )}
+                </div>
               </div>
 
               <div className="ca-modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => { setAssignModalOpen(false); setEditingDeptId(null) }} disabled={saving}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary" disabled={saving || selectedCategories.length === 0 || selectedDepartments.length === 0}>
+                <button type="submit" className="btn btn-primary" disabled={!canEditCategoryAccess || saving || selectedCategories.length === 0 || selectedDepartments.length === 0}>
                   {saving ? 'Saving...' : editingDeptId ? 'Update Access' : 'Assign Categories'}
                 </button>
               </div>

@@ -2,12 +2,15 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREENS } from '../config/permissions'
 import './AssignModules.css'
 
 function AssignModules() {
   const mountedRef = useRef(true)
   const [loading, setLoading] = useState(true)
   const { showNotification } = useNotification()
+  const { hasActionAccess } = useAuth()
   const [assignModalOpen, setAssignModalOpen] = useState(false)
   const [users, setUsers] = useState([])
   const [modules, setModules] = useState([])
@@ -38,9 +41,13 @@ function AssignModules() {
   const [bulkEditStatus, setBulkEditStatus] = useState('')
   const [editingUserId, setEditingUserId] = useState(null) // null = create mode, userId = edit mode
 
+  const canViewAssignments = hasActionAccess(SCREENS.ASSIGN_MODULES, 'view')
+  const canEditAssignments = hasActionAccess(SCREENS.ASSIGN_MODULES, 'edit')
+  const canDeleteAssignments = hasActionAccess(SCREENS.ASSIGN_MODULES, 'delete')
+
   const breadcrumbItems = [
     { label: 'Home', link: true },
-    { label: 'Assign Modules', link: false }
+    { label: 'Mandatory Modules', link: false }
   ]
 
   useEffect(() => {
@@ -174,6 +181,11 @@ function AssignModules() {
   }
 
   const openEditModal = (group) => {
+    if (!canEditAssignments) {
+      showNotification('You do not have edit permission for Mandatory Modules.', 'error')
+      return
+    }
+
     setEditingUserId(group.user?.id)
     setAssignType('single')
     setSelectedUser(group.user?.id || '')
@@ -216,6 +228,11 @@ function AssignModules() {
 
   const handleAssign = async (e) => {
     e.preventDefault()
+
+    if (!canEditAssignments) {
+      showNotification('You do not have edit permission for Mandatory Modules.', 'error')
+      return
+    }
 
     if (assignType === 'single' && !selectedUser) {
       showNotification('Please select a user', 'warning')
@@ -333,6 +350,11 @@ function AssignModules() {
   }
 
   const handleDeleteAssignment = async (assignmentId) => {
+    if (!canDeleteAssignments) {
+      showNotification('You do not have delete permission for Mandatory Modules.', 'error')
+      return
+    }
+
     if (!confirm('Are you sure you want to remove this assignment?')) return
 
     try {
@@ -357,6 +379,11 @@ function AssignModules() {
 
   const handleBulkEdit = async (e) => {
     e.preventDefault()
+
+    if (!canEditAssignments) {
+      showNotification('You do not have edit permission for Mandatory Modules.', 'error')
+      return
+    }
     if (checkedRows.length === 0) return
     if (!bulkEditStart && !bulkEditEnd && !bulkEditStatus) {
       showNotification('Please fill at least one field to update.', 'warning')
@@ -394,6 +421,11 @@ function AssignModules() {
   }
 
   const handleBulkDelete = async () => {
+    if (!canDeleteAssignments) {
+      showNotification('You do not have delete permission for Mandatory Modules.', 'error')
+      return
+    }
+
     if (checkedRows.length === 0) return
     if (!confirm(`Are you sure you want to delete ALL module assignments for ${checkedRows.length} selected user(s)?`)) return
     try {
@@ -416,6 +448,11 @@ function AssignModules() {
   }
 
   const handleDeleteAllUserAssignments = async (userId) => {
+    if (!canDeleteAssignments) {
+      showNotification('You do not have delete permission for Mandatory Modules.', 'error')
+      return
+    }
+
     if (!confirm('Are you sure you want to remove ALL module assignments for this user?')) return
 
     try {
@@ -440,6 +477,11 @@ function AssignModules() {
   }
 
   const openDetailDrawer = (groupedUser) => {
+    if (!canViewAssignments) {
+      showNotification('You do not have view permission for Mandatory Modules.', 'error')
+      return
+    }
+
     setSelectedUserDetail(groupedUser)
     setDetailDrawerOpen(true)
   }
@@ -538,8 +580,8 @@ function AssignModules() {
       <main className="assign-modules-main">
         <section className="assign-modules-header">
           <div>
-            <h2>Assign Modules</h2>
-            <p>Assign modules to users with date ranges</p>
+            <h2>Mandatory Modules</h2>
+            <p>Assign mandatory modules to users with date ranges</p>
           </div>
           <div>
             <button 
@@ -567,6 +609,7 @@ function AssignModules() {
                 setModuleSelectMode('manual')
                 setSelectedCategories([])
               }}
+              disabled={!canEditAssignments}
             >
               <i className="fa-solid fa-plus"></i>
               Assign Module
@@ -634,14 +677,14 @@ function AssignModules() {
                   setSelectedCategories([])
                   setAssignModalOpen(true)
                 }}
-                disabled={loading}
+                disabled={!canEditAssignments || loading}
               >
                 <i className="fa-solid fa-pen"></i> Edit Assignments
               </button>
               <button
                 className="btn btn-danger"
                 onClick={handleBulkDelete}
-                disabled={loading}
+                disabled={!canDeleteAssignments || loading}
               >
                 <i className="fa-solid fa-trash"></i> Delete Assignments
               </button>
@@ -666,7 +709,7 @@ function AssignModules() {
             <div className="empty-state">
               <i className="fa-solid fa-clipboard-list"></i>
               <p>No module assignments found</p>
-              <button className="btn btn-primary" onClick={() => setAssignModalOpen(true)}>
+              <button className="btn btn-primary" onClick={() => setAssignModalOpen(true)} disabled={!canEditAssignments}>
                 <i className="fa-solid fa-plus"></i>
                 Create First Assignment
               </button>
@@ -682,6 +725,7 @@ function AssignModules() {
                         className="row-checkbox"
                         title="Select all"
                         checked={checkedRows.length === groupedAssignments.length && groupedAssignments.length > 0}
+                        disabled={!canEditAssignments && !canDeleteAssignments}
                         onChange={(e) => {
                           if (e.target.checked) setCheckedRows(groupedAssignments.map(g => g.user?.id).filter(Boolean))
                           else setCheckedRows([])
@@ -706,14 +750,15 @@ function AssignModules() {
                       <tr 
                         key={userId || index} 
                         className={`assignments-table-row${isChecked ? ' row-selected' : ''}`}
-                        onClick={() => openDetailDrawer(group)}
-                        style={{ cursor: 'pointer' }}
+                        onClick={() => canViewAssignments && openDetailDrawer(group)}
+                        style={{ cursor: canViewAssignments ? 'pointer' : 'default' }}
                       >
                         <td onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             className="row-checkbox"
                             checked={isChecked}
+                            disabled={!canEditAssignments && !canDeleteAssignments}
                             onChange={(e) => {
                               if (e.target.checked) setCheckedRows(prev => [...prev, userId])
                               else setCheckedRows(prev => prev.filter(id => id !== userId))
@@ -741,27 +786,33 @@ function AssignModules() {
                         </td>
                         <td onClick={(e) => e.stopPropagation()}>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button
-                              className="btn-icon btn-view"
-                              onClick={() => openDetailDrawer(group)}
-                              title="View details"
-                            >
-                              <i className="fa-solid fa-eye"></i>
-                            </button>
-                            <button
-                              className="btn-icon btn-edit"
-                              onClick={() => openEditModal(group)}
-                              title="Edit assignments"
-                            >
-                              <i className="fa-solid fa-pen-to-square"></i>
-                            </button>
-                            <button
-                              className="btn-icon btn-delete"
-                              onClick={() => handleDeleteAllUserAssignments(group.user?.id)}
-                              title="Delete all assignments"
-                            >
-                              <i className="fa-solid fa-trash"></i>
-                            </button>
+                            {canViewAssignments && (
+                              <button
+                                className="btn-icon btn-view"
+                                onClick={() => openDetailDrawer(group)}
+                                title="View details"
+                              >
+                                <i className="fa-solid fa-eye"></i>
+                              </button>
+                            )}
+                            {canEditAssignments && (
+                              <button
+                                className="btn-icon btn-edit"
+                                onClick={() => openEditModal(group)}
+                                title="Edit assignments"
+                              >
+                                <i className="fa-solid fa-pen-to-square"></i>
+                              </button>
+                            )}
+                            {canDeleteAssignments && (
+                              <button
+                                className="btn-icon btn-delete"
+                                onClick={() => handleDeleteAllUserAssignments(group.user?.id)}
+                                title="Delete all assignments"
+                              >
+                                <i className="fa-solid fa-trash"></i>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -790,9 +841,9 @@ function AssignModules() {
                   ? (editingUserId === 'bulk'
                       ? `Edit Assignments — ${selectedUsers.length} user${selectedUsers.length !== 1 ? 's' : ''}`
                       : 'Edit Module Assignments')
-                  : (assignType === 'single' ? 'Assign Modules to User' :
-                     assignType === 'multiple' ? 'Assign Modules to Multiple Users' :
-                     'Assign Modules to Department')}
+                  : (assignType === 'single' ? 'Assign Mandatory Modules to User' :
+                    assignType === 'multiple' ? 'Assign Mandatory Modules to Multiple Users' :
+                    'Assign Mandatory Modules to Department')}
               </h3>
               <button onClick={() => {
                 setAssignModalOpen(false)
@@ -1140,9 +1191,9 @@ function AssignModules() {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={loading || selectedModules.length === 0}
+                  disabled={!canEditAssignments || loading || selectedModules.length === 0}
                 >
-                  {loading ? 'Assigning...' : 'Assign Modules'}
+                  {loading ? 'Assigning...' : 'Assign Mandatory Modules'}
                 </button>
               </div>
             </form>
@@ -1196,6 +1247,7 @@ function AssignModules() {
                             className="btn-icon btn-delete"
                             onClick={() => handleDeleteAssignment(assignment.id)}
                             title="Delete this assignment"
+                            disabled={!canDeleteAssignments}
                           >
                             <i className="fa-solid fa-trash"></i>
                           </button>
@@ -1217,7 +1269,7 @@ function AssignModules() {
               <button
                 className="btn btn-danger"
                 onClick={() => handleDeleteAllUserAssignments(selectedUserDetail.user?.id)}
-                disabled={loading}
+                disabled={!canDeleteAssignments || loading}
               >
                 <i className="fa-solid fa-trash"></i> Delete All Assignments
               </button>
@@ -1288,7 +1340,7 @@ function AssignModules() {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={loading}
+                  disabled={!canEditAssignments || loading}
                 >
                   {loading ? 'Saving...' : 'Save Changes'}
                 </button>

@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB';
 import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
+import { SCREENS } from '../config/permissions';
 import './Banners.css';
 
 const Banners = () => {
@@ -10,6 +12,7 @@ const Banners = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [banners, setBanners] = useState([]);
   const { showNotification } = useNotification();
+  const { hasActionAccess } = useAuth();
   const [loading, setLoading] = useState(true);
   const [editingBanner, setEditingBanner] = useState(null);
   const [editingBannerId, setEditingBannerId] = useState(null);
@@ -34,6 +37,9 @@ const Banners = () => {
     { label: 'Dashboard', href: '/dashboard' },
     { label: 'Banner Management', href: '/banners', active: true }
   ];
+
+  const canEditBanners = hasActionAccess(SCREENS.BANNERS, 'edit');
+  const canDeleteBanners = hasActionAccess(SCREENS.BANNERS, 'delete');
 
   useEffect(() => {
     mountedRef.current = true;
@@ -148,6 +154,11 @@ const Banners = () => {
   };
 
   const openModal = (banner = null) => {
+    if (!canEditBanners) {
+      showNotification('You do not have edit permission for Banners.', 'error');
+      return;
+    }
+
     console.log('openModal called with:', banner);
     if (banner) {
       setEditingBanner(banner);
@@ -247,6 +258,11 @@ const Banners = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!canEditBanners) {
+      showNotification('You do not have edit permission for Banners.', 'error');
+      return;
+    }
+
     try {
       // Validation - title is now optional
       if (!formData.redirectType) {
@@ -331,6 +347,11 @@ const Banners = () => {
   };
 
   const toggleBannerStatus = async (banner) => {
+    if (!canEditBanners) {
+      showNotification('You do not have edit permission for Banners.', 'error');
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('banners')
@@ -347,6 +368,11 @@ const Banners = () => {
   };
 
   const deleteBanner = async (id) => {
+    if (!canDeleteBanners) {
+      showNotification('You do not have delete permission for Banners.', 'error');
+      return;
+    }
+
     if (!window.confirm('Are you sure you want to delete this banner?')) return;
 
     try {
@@ -387,7 +413,7 @@ const Banners = () => {
         <main className="banners-main">
             <div className="section-header">
               <h2 className="page-title">Banners</h2>
-              <button className="btn-primary" onClick={() => openModal(null)}>
+              <button className="btn-primary" onClick={() => openModal(null)} disabled={!canEditBanners}>
                 <i className="fa-solid fa-plus"></i>
                 <span>Add Banner</span>
               </button>
@@ -403,7 +429,7 @@ const Banners = () => {
                 <div className="empty-state">
                   <i className="fa-solid fa-image"></i>
                   <p>No banners found</p>
-                  <button className="btn-primary" onClick={() => openModal()}>
+                  <button className="btn-primary" onClick={() => openModal()} disabled={!canEditBanners}>
                     Add Your First Banner
                   </button>
                 </div>
@@ -421,12 +447,14 @@ const Banners = () => {
                           <button 
                             className="action-btn edit-btn"
                             onClick={() => editBanner(banner)}
+                            disabled={!canEditBanners}
                           >
                             <i className="fa-solid fa-pencil"></i>
                           </button>
                           <button 
                             className="action-btn delete-btn"
                             onClick={() => deleteBanner(banner.id)}
+                            disabled={!canDeleteBanners}
                           >
                             <i className="fa-solid fa-trash"></i>
                           </button>
@@ -448,6 +476,7 @@ const Banners = () => {
                             checked={banner.is_active}
                             onChange={() => toggleBannerStatus(banner)}
                             className="toggle-input"
+                            disabled={!canEditBanners}
                           />
                           <div className="toggle-track"></div>
                           <div className="toggle-thumb"></div>
@@ -612,7 +641,7 @@ const Banners = () => {
                 <button type="button" className="btn-secondary" onClick={closeModal}>
                   Cancel
                 </button>
-                <button type="button" className="btn-primary" onClick={handleSubmit}>
+                <button type="button" className="btn-primary" onClick={handleSubmit} disabled={!canEditBanners}>
                   <i className="fa-solid fa-save"></i>
                   {editingBanner ? 'Update Banner' : 'Save Banner'}
                 </button>

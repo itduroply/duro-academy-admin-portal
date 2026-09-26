@@ -3,12 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { cachedFetch, TTL } from '../utils/cacheDB';
 import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
+import { SCREENS } from '../config/permissions';
 import './Assessments.css';
 
 function Assessments() {
   const mountedRef = useRef(true);
   const navigate = useNavigate();
   const { showNotification } = useNotification();
+  const { hasActionAccess } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filterModule, setFilterModule] = useState('All Modules');
   const [filterStatus, setFilterStatus] = useState('All Status');
@@ -23,6 +26,9 @@ function Assessments() {
     { label: 'Home', link: true },
     { label: 'Assessments', link: false }
   ];
+
+  const canEditAssessments = hasActionAccess(SCREENS.ASSESSMENTS, 'edit');
+  const canDeleteAssessments = hasActionAccess(SCREENS.ASSESSMENTS, 'delete');
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -138,14 +144,27 @@ function Assessments() {
   };
 
   const handleAddAssessment = () => {
+    if (!canEditAssessments) {
+      showNotification('You do not have edit permission for Assessments.', 'error');
+      return;
+    }
     navigate('/quiz-builder');
   };
 
   const handleEditQuiz = (quizId) => {
+    if (!canEditAssessments) {
+      showNotification('You do not have edit permission for Assessments.', 'error');
+      return;
+    }
     navigate(`/quiz-builder/${quizId}`);
   };
 
   const handleDeleteQuiz = async (quizId) => {
+    if (!canDeleteAssessments) {
+      showNotification('You do not have delete permission for Assessments.', 'error');
+      return;
+    }
+
     if (!window.confirm('Are you sure you want to delete this assessment? All associated questions will also be deleted.')) {
       return;
     }
@@ -211,7 +230,7 @@ function Assessments() {
               <button className="btn btn-secondary" onClick={fetchQuizzes}>
                 <i className="fa-solid fa-arrows-rotate"></i>Refresh
               </button>
-              <button className="btn btn-primary" onClick={handleAddAssessment}>
+              <button className="btn btn-primary" onClick={handleAddAssessment} disabled={!canEditAssessments}>
                 <i className="fa-solid fa-plus"></i>Add Assessment
               </button>
             </div>
@@ -328,20 +347,24 @@ function Assessments() {
                         </td>
                         <td>
                           <div className="action-buttons-cell">
-                            <button 
-                              className="action-btn edit-btn" 
-                              onClick={() => handleEditQuiz(quiz.id)}
-                              title="Edit Quiz"
-                            >
-                              <i className="fa-solid fa-pencil"></i>
-                            </button>
-                            <button 
-                              className="action-btn delete-btn" 
-                              onClick={() => handleDeleteQuiz(quiz.id)}
-                              title="Delete Quiz"
-                            >
-                              <i className="fa-solid fa-trash"></i>
-                            </button>
+                            {canEditAssessments && (
+                              <button 
+                                className="action-btn edit-btn" 
+                                onClick={() => handleEditQuiz(quiz.id)}
+                                title="Edit Quiz"
+                              >
+                                <i className="fa-solid fa-pencil"></i>
+                              </button>
+                            )}
+                            {canDeleteAssessments && (
+                              <button 
+                                className="action-btn delete-btn" 
+                                onClick={() => handleDeleteQuiz(quiz.id)}
+                                title="Delete Quiz"
+                              >
+                                <i className="fa-solid fa-trash"></i>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

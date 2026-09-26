@@ -164,12 +164,38 @@ function buildSelectionLabel(selectedQuarters, selectedMonths) {
   return `${quarterLabel}_${monthLabel}`
 }
 
+function normalizeAccessTypes(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap(item => normalizeAccessTypes(item))
+  }
+
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return []
+
+    if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
+      try {
+        const parsed = JSON.parse(text)
+        return normalizeAccessTypes(parsed)
+      } catch {
+        // Fall through to the raw string below.
+      }
+    }
+
+    return [text.toUpperCase()]
+  }
+
+  if (value === null || value === undefined) return []
+  return [String(value).trim().toUpperCase()].filter(Boolean)
+}
+
 export default function PerformanceDashboard() {
   const mountedRef = useRef(true)
   const auth = useContext(AuthContext)
   const { user: authUser, role } = auth || {}
 
   const [users, setUsers] = useState([])
+  const [branches, setBranches] = useState([])
   const [usersLoading, setUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -177,6 +203,7 @@ export default function PerformanceDashboard() {
   const [adminAllowedBranchIds, setAdminAllowedBranchIds] = useState([])
 
   const [selectedUserId, setSelectedUserId] = useState('')
+  const selectedUserIdRef = useRef('')
 
   const currentFYStart = getCurrentFYStart()
   const fyOptions = [
@@ -201,6 +228,10 @@ export default function PerformanceDashboard() {
     [users, selectedUserId]
   )
 
+  useEffect(() => {
+    selectedUserIdRef.current = selectedUserId
+  }, [selectedUserId])
+
   const availableMonths = useMemo(() => {
     if (selectedQuarters.includes('All')) return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     return [...new Set(selectedQuarters.flatMap(q => QUARTER_MONTHS[q] || []))].sort((a, b) => a - b)
@@ -215,8 +246,14 @@ export default function PerformanceDashboard() {
   }, [selectedFYStart, availableMonths, selectedMonths])
 
   const branchOptions = useMemo(() => {
+    if (role !== 'admin') {
+      const values = [...new Set(branches.map(branch => String(branch.branch_name || '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b))
+      return ['All Branches', ...values]
+    }
+
     let filteredUsers = users
-    
+
     // If user is admin, only show branches they have access to
     if (role === 'admin') {
       const allowedBranchSet = new Set(adminAllowedBranchIds.length > 0 ? adminAllowedBranchIds : (adminUserBranchId ? [adminUserBranchId] : []))
@@ -228,7 +265,7 @@ export default function PerformanceDashboard() {
     
     // Keep "All Branches" for both super_admin and admin (admin is still restricted by allowed branches)
     return ['All Branches', ...values]
-  }, [users, role, adminUserBranchId, adminAllowedBranchIds])
+  }, [users, branches, role, adminUserBranchId, adminAllowedBranchIds])
 
   const adminAllowedBranchSet = useMemo(() => new Set(adminAllowedBranchIds), [adminAllowedBranchIds])
 
@@ -261,13 +298,12 @@ export default function PerformanceDashboard() {
       setUsersLoading(true)
       setUsersError(null)
       const { data } = await cachedFetch(
-        'perf_dashboard_assigned_users_dgo_v2',
+        'perf_dashboard_assigned_users_dgo_v4',
         async () => {
           const [assignedRes, branchesRes] = await Promise.all([
             supabase
               .from('user_performance_dashboard')
-              .select('users:user_id(id, full_name, email, employee_id, department_id, branch_id, status, leaving_date, reporting_manager)')
-              .contains('access_type', ['DGO'])
+              .select('user_id, access_type, users:user_id(id, full_name, email, employee_id, department_id, branch_id, status, leaving_date, reporting_manager)')
               .order('assigned_at', { ascending: false }),
             supabase
               .from('branches')
@@ -278,8 +314,13 @@ export default function PerformanceDashboard() {
           if (branchesRes.error) throw branchesRes.error
 
           const branchMap = new Map((branchesRes.data || []).map(b => [b.id, b.branch_name]))
+          if (mountedRef.current) setBranches(Array.isArray(branchesRes.data) ? branchesRes.data : [])
 
           const assignedUsers = (assignedRes.data || [])
+            .filter(row => {
+              const accessTypes = normalizeAccessTypes(row.access_type)
+              return accessTypes.includes('DGO')
+            })
             .map(row => row.users ? {
               ...row.users,
               branch_id: row.users.branch_id,
@@ -303,8 +344,9 @@ export default function PerformanceDashboard() {
       if (!mountedRef.current) return
       setUsers(Array.isArray(data) ? data : [])
       if (data && data.length > 0) {
-        const selectedStillExists = data.some(u => u.id === selectedUserId)
-        if (!selectedUserId || !selectedStillExists) {
+        const currentSelectedUserId = selectedUserIdRef.current
+        const selectedStillExists = data.some(u => u.id === currentSelectedUserId)
+        if (!currentSelectedUserId || !selectedStillExists) {
           setSelectedUserId(data[0].id)
         }
       } else {
@@ -315,7 +357,7 @@ export default function PerformanceDashboard() {
     } finally {
       if (mountedRef.current) setUsersLoading(false)
     }
-  }, [selectedUserId])
+  }, [])
 
   const computePerformance = useCallback(async (employeeId, pairs, fyStart) => {
     const sortedPairs = [...pairs].sort((a, b) => (a.year - b.year) || (a.month - b.month))
@@ -1289,6 +1331,7 @@ export default function PerformanceDashboard() {
         Employee: selectedUser.employee_id || '',
         Employee_Name: selectedUser.full_name || '',
         Email: selectedUser.email || '',
+        Status: selectedUser.status ? (selectedUser.status === 'active' ? 'Active' : 'Inactive') : 'Unknown',
         FY: fyLabel,
         Selection: selectionLabel,
         Total_Goal_Poi: detailData.totals.goalPoints,
@@ -1363,84 +1406,138 @@ export default function PerformanceDashboard() {
     const exportUsers = filteredUsers.filter(user => user?.employee_id)
     if (exportUsers.length === 0) return
 
-    const rows = []
-    const failedUsers = []
-    const BATCH_SIZE = 2 // Ultra-conservative: 2 concurrent requests (was 3)
-    const BATCH_DELAY = 1500 // 1.5 seconds between batches (was 1000ms)
-    let done = 0
-
     setAllUsersExporting(true)
     setAllUsersExportProgress({ done: 0, total: exportUsers.length })
 
-    try {
-      for (let i = 0; i < exportUsers.length; i += BATCH_SIZE) {
-        const batch = exportUsers.slice(i, i + BATCH_SIZE)
-        
-        const batchResults = await Promise.all(batch.map(async (user) => {
-          let retries = 3 // Increased from 2 to 3 attempts
+    const rows = []
+    const failedUsers = []
+
+    const buildExportRow = (user, data) => ({
+      Employee: user.employee_id || '',
+      Employee_Name: user.full_name || '',
+      Status: user.status ? (user.status === 'active' ? 'Active' : 'Inactive') : 'Unknown',
+      Reporting_Manager: user.reporting_manager || '',
+      Branch_Name: user.branch_name || '',
+      Achieved_Sheet: data.sheetData?.approvedSummary || 0,
+      Sheet_Goal: data.sheetData?.goal || 0,
+      Sheet_Points: data.sheetData?.points || 0,
+      Achieved_DMI: data.dmiData?.achievedPoints || 0,
+      DMI_Goal: data.dmiGoal || 0,
+      Achieved_Behavior: data.behaviorData?.achievedPoints || 0,
+      Behavior_Goal: data.behaviorData?.goal || 0,
+      Total_Goal: data.totals?.goalPoints || 0,
+      Total_Achieved: data.totals?.achievedPoints || 0,
+      Achievement_Percentage: data.totals?.percentage || 0,
+    })
+
+    const processUsersForExport = async (usersToProcess, {
+      forceRefresh = false,
+      updateProgress = false,
+      maxConcurrency = 3,
+      requestDelayMs = 0,
+      maxAttempts = 1,
+      attemptBackoffMs = 0,
+    } = {}) => {
+      const localRows = []
+      const localFailedUsers = []
+      const concurrency = Math.max(1, Math.min(maxConcurrency, usersToProcess.length))
+      let nextIndex = 0
+      let completedCount = 0
+
+      const worker = async () => {
+        while (true) {
+          const currentIndex = nextIndex
+          if (currentIndex >= usersToProcess.length) return
+          nextIndex += 1
+
+          const user = usersToProcess[currentIndex]
+          const cacheKey = forceRefresh
+            ? `perf_export_v2_retry_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
+            : `perf_export_v2_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
+
+          let success = false
           let lastError = null
-          let waitTime = 800 // Start with 800ms exponential backoff (was 500ms)
 
-          while (retries > 0) {
-            try {
-              const { data } = await cachedFetch(
-                `perf_export_${user.employee_id}_${selectedFYStart}_${selectionLabel}`,
-                () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
-                TTL.MEDIUM
-              )
+          try {
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                const { data } = await cachedFetch(
+                  cacheKey,
+                  () => computePerformance(user.employee_id, monthYearPairs, selectedFYStart),
+                  TTL.SHORT,
+                  forceRefresh || attempt > 1
+                )
 
-              if (!data) {
-                return { ok: false, user }
+                if (data) {
+                  localRows.push(buildExportRow(user, data))
+                  success = true
+                  break
+                }
+
+                lastError = new Error('No data returned')
+              } catch (attemptError) {
+                lastError = attemptError
               }
 
-              return {
-                ok: true,
-                user,
-                row: {
-                  Employee: user.employee_id || '',
-                  Employee_Name: user.full_name || '',
-                  Status: user.status ? (user.status === 'active' ? 'Active' : 'Inactive') : 'Unknown',
-                  Reporting_Manager: user.reporting_manager || '',
-                  Branch_Name: user.branch_name || '',
-                  Achieved_Sheet: data.sheetData?.approvedSummary || 0,
-                  Sheet_Goal: data.sheetData?.goal || 0,
-                  Sheet_Points: data.sheetData?.points || 0,
-                  Achieved_DMI: data.dmiData?.achievedPoints || 0,
-                  DMI_Goal: data.dmiGoal || 0,
-                  Achieved_Behavior: data.behaviorData?.achievedPoints || 0,
-                  Behavior_Goal: data.behaviorData?.goal || 0,
-                  Total_Goal: data.totals?.goalPoints || 0,
-                  Total_Achieved: data.totals?.achievedPoints || 0,
-                  Achievement_Percentage: data.totals?.percentage || 0,
-                },
-              }
-            } catch (error) {
-              lastError = error
-              retries -= 1
-              if (retries > 0) {
-                // Exponential backoff: 500ms → 1000ms → 2000ms
-                await new Promise(resolve => setTimeout(resolve, waitTime))
-                waitTime *= 2
+              if (attempt < maxAttempts && attemptBackoffMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, attemptBackoffMs * attempt))
               }
             }
+
+            if (!success) {
+              localFailedUsers.push(user.employee_id)
+              console.error(`Failed to fetch report data for ${user.employee_id} after ${maxAttempts} attempt(s):`, lastError)
+            }
+          } finally {
+            completedCount += 1
+            if (updateProgress) {
+              setAllUsersExportProgress({ done: completedCount, total: usersToProcess.length })
+            }
+
+            if (requestDelayMs > 0) {
+              await new Promise(resolve => setTimeout(resolve, requestDelayMs))
+            }
           }
-
-          console.error('All users export failed for', user.employee_id, lastError)
-          return { ok: false, user }
-        }))
-
-        batchResults.forEach(result => {
-          if (result?.ok && result.row) rows.push(result.row)
-          else if (result?.user?.employee_id) failedUsers.push(result.user.employee_id)
-        })
-
-        done += batch.length
-        setAllUsersExportProgress({ done, total: exportUsers.length })
-
-        // Add delay between batches to prevent connection pool exhaustion
-        if (i + BATCH_SIZE < exportUsers.length) {
-          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY))
         }
+      }
+
+      await Promise.all(Array.from({ length: concurrency }, () => worker()))
+      return { localRows, localFailedUsers }
+    }
+
+    try {
+      const firstPass = await processUsersForExport(exportUsers, {
+        updateProgress: true,
+        maxConcurrency: 3,
+        maxAttempts: 1,
+      })
+      rows.push(...firstPass.localRows)
+
+      let failedUsers = firstPass.localFailedUsers
+      if (failedUsers.length > 0) {
+        const retryUsers = exportUsers.filter(user => failedUsers.includes(user.employee_id))
+        const retryPass = await processUsersForExport(retryUsers, {
+          forceRefresh: true,
+          maxConcurrency: 1,
+          requestDelayMs: 250,
+          maxAttempts: 2,
+          attemptBackoffMs: 400,
+        })
+        rows.push(...retryPass.localRows)
+        failedUsers = retryPass.localFailedUsers
+      }
+
+      if (failedUsers.length > 0) {
+        const finalRetryUsers = exportUsers.filter(user => failedUsers.includes(user.employee_id))
+        const finalRetryPass = await processUsersForExport(finalRetryUsers, {
+          forceRefresh: true,
+          maxConcurrency: 1,
+          requestDelayMs: 500,
+          maxAttempts: 3,
+          attemptBackoffMs: 800,
+        })
+        rows.push(...finalRetryPass.localRows)
+        failedUsers = finalRetryPass.localFailedUsers
       }
 
       if (rows.length === 0) {
@@ -1449,15 +1546,14 @@ export default function PerformanceDashboard() {
       }
 
       const workbook = XLSX.utils.book_new()
-      const worksheet = XLSX.utils.json_to_sheet(rows)
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Performance Report')
-      
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Performance Report')
+
       if (failedUsers.length > 0) {
         const failedSheet = XLSX.utils.json_to_sheet(failedUsers.map(id => ({ Employee_ID: id, Status: 'Export Failed' })))
         XLSX.utils.book_append_sheet(workbook, failedSheet, 'Failed')
         alert(`⚠️ Export completed with ${failedUsers.length} failures. Check "Failed" sheet for details.`)
       }
-      
+
       XLSX.writeFile(workbook, fileName)
     } finally {
       setAllUsersExporting(false)

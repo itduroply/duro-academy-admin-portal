@@ -385,6 +385,113 @@ const SHEET_CONFIGS = {
     }),
   },
 
+  sales_dump: {
+    label: 'Sales Dump',
+    table: 'sales_dump',
+    uniqueKey: null, // one Document Number spans multiple product lines — always insert
+    icon: 'fa-solid fa-receipt',
+    mapRow: (r) => ({
+      document_type: str(r['Document Type']),
+      document_number: str(r['Document Number']),
+      posting_date: salesDumpDate(r['Posting Date']),
+      document_date: salesDumpDate(r['Document Date']),
+      sales_order_no: str(r['Sales Order No.']),
+      sales_order_date: salesDumpDate(r['Sales Order Date']),
+      customer_code: str(r['Customer Code']),
+      customer_name: str(r['Customer Name']),
+      customer_group: str(r['Customer Group']),
+      agent_salesman_name: str(r['Agent(Salesman)Name']),
+      city: str(r['City']),
+      state: str(r['State']),
+      zone: str(r['Zone']),
+      market_name: str(r['Market Name']),
+      cluster_name: str(r['Cluster Name']),
+      type_of_city: str(r['Type of City']),
+      billing_branch_name: str(r['Billing Branch Name']),
+      selling_branch_code: str(r['Selling Branch Code']),
+      selling_branch: str(r['Selling Branch']),
+      secondary_selling_branch: str(r['Secondary Selling Branch']),
+      brand: str(r['Brand']),
+      product_segment_description: str(r['Product Segment Description']),
+      subbrand_name: str(r['SubBrand Name']),
+      item_code: str(r['ItemCode']),
+      item_name: str(r['ItemName']),
+      sale_account_code: str(r['Sale Account Code']),
+      sale_account_description: str(r['Sale Account Description']),
+      quantity_pcs: numClean(r['Quantity(PCS)']),
+      uom_code: str(r['UomCode']),
+      invoice_rate: numClean(r['Invoice Rate']),
+      quantity_na: numClean(r['Quantity-NA']),
+      quantity_sqm: numClean(r['Quantity Sq.mt']),
+      trade_discount: numClean(r['Trade Discount']),
+      additional_trade_discount: numClean(r['Additional Trade Discount']),
+      special_discount: numClean(r['Special Discount']),
+      apd1_amount: numClean(r['APD1 Amount']),
+      apd2_amount: numClean(r['APD2 Amount']),
+      basic_amount: numClean(r['Basic Amount']),
+      cgst_rate: numClean(r['CGST Rate']),
+      cgst_amount: numClean(r['CGST Amount']),
+      sgst_rate: numClean(r['SGST Rate']),
+      sgst_amount: numClean(r['SGST Amount']),
+      igst_rate: numClean(r['IGST Rate']),
+      igst_amount: numClean(r['IGST Amount']),
+      tax_amount: numClean(r['Tax Amount']),
+      net_amount: numClean(r['Net Amount']),
+      thickness: numClean(r['Thickness']),
+      length_name: numClean(r['Length Name']),
+      width_name: numClean(r['Width Name']),
+      product_group: str(r['Product Group']),
+      sub_group_id: str(r['Sub Group Id']),
+      sub_group_code: str(r['Sub Group Code']),
+      product_subgroup: str(r['Product Subgroup']),
+      brand_id: str(r['Brand Id']),
+      brand_code: str(r['Brand Code']),
+      segment_id: str(r['Segment Id']),
+      segment_code: str(r['Segment Code']),
+      product_segment: str(r['Product Segment']),
+      general_ledger_code: str(r['General Ledger Code']),
+      general_ledger_description: str(r['General Ledger Description']),
+      hsn_sac: str(r['HSN/SAC']),
+      batch_number: str(r['Batch Number']),
+      product_master_fa: numClean(r['Product Master FA']),
+      product_master_na: numClean(r['Product Master NA']),
+      month: str(r['Month']),
+      year: intClean(r['Year']),
+      thickness_id: str(r['Thickness Id']),
+      thickness_code: numClean(r['Thickness Code']),
+      length_code: str(r['Length Code']),
+      width_code: str(r['Width Code']),
+      ntd_specie_id: str(r['NTDSpecie Id']),
+      ntd_specie_code: str(r['NTDSpecie Code']),
+      ntd_specie_name: str(r['NTDSpecie Name']),
+      grade_id: str(r['Grade Id']),
+      grade_code: str(r['Grade Code']),
+      grade_name: str(r['Grade Name']),
+      subbrand_id: str(r['SubBrand Id']),
+      subbrand_code: str(r['SubBrand Code']),
+      product_id: str(r['Product Id']),
+      product_code: str(r['Product Code']),
+      product_name: str(r['Product Name']),
+      design_id: str(r['Design Id']),
+      design_code: str(r['Design Code']),
+      design_name: str(r['Design Name']),
+      category_id: str(r['Category Id']),
+      category_code: str(r['Category Code']),
+      category_name: str(r['Category Name']),
+      source_id: str(r['Source Id']),
+      source_code: str(r['Source Code']),
+      source_name: str(r['Source Name']),
+      remarks: str(r['Remarks']),
+      group_status: str(r['Group Status']),
+      group_grade: str(r['Group Grade']),
+      group_size: str(r['Group Size']),
+      total_weight: numClean(r['Total Weight']),
+      sales_invoice_no: str(r['Sales Invoice No.']),
+      sales_invoice_date: salesDumpDate(r['Sales Invoice Date']),
+      debit_credit_note_type: str(r['Debit/Credit Note Type']),
+    }),
+  },
+
   monthly_attendance: {
     label: 'Monthly Attendance Report',
     table: 'monthly_attendance_report',
@@ -535,6 +642,45 @@ const SHEET_TEMPLATES = {
       'Influencer Tier': 'Bronze',
     }],
   },
+  sales_dump: {
+    sheetName: 'Sheet1',
+    fileName: 'SalesDump_Format.xlsx',
+    rows: [{
+      'Document Type': 'Sales Invoice', 'Document Number': 'GASI/00384/2526',
+      'Posting Date': '1/1/26', 'Document Date': '1/1/26',
+      'Sales Order No.': 'GA/00745/2526', 'Sales Order Date': '1/1/26',
+      'Customer Code': 'CD0026', 'Customer Name': 'DECORA', 'Customer Group': 'Project',
+      'Agent(Salesman)Name': 'SAGAR GUPTA (02039)', 'City': 'AHMEDABAD', 'State': 'Gujarat',
+      'Zone': 'West Zone', 'Market Name': 'AHMEDABAD', 'Cluster Name': 'AHMEDABAD-WEST.',
+      'Type of City': 'METRO', 'Billing Branch Name': 'AHMEDABAD', 'Selling Branch Code': 'W1',
+      'Selling Branch': 'GUJARAT', 'Secondary Selling Branch': '', 'Brand': 'TOWER',
+      'Product Segment Description': 'PLY WOOD', 'SubBrand Name': 'TOWER',
+      'ItemCode': 'RFP1ZZ0390000624401220', 'ItemName': 'MR PLYWOOD TOWER 6mm 2.4400x1.2200',
+      'Sale Account Code': '4101030020', 'Sale Account Description': 'SALES PLYWOOD (MANUF.RAJKOT)',
+      'Quantity(PCS)': '15', 'UomCode': 'SQM', 'Invoice Rate': '2,179.02',
+      'Quantity-NA': '66.978', 'Quantity Sq.mt': '44.652', 'Trade Discount': '17,159.76',
+      'Additional Trade Discount': '465.77', 'Special Discount': '0', 'APD1 Amount': '0',
+      'APD2 Amount': '0', 'Basic Amount': '15,059.73', 'CGST Rate': '9', 'CGST Amount': '1,355.38',
+      'SGST Rate': '9', 'SGST Amount': '1,355.38', 'IGST Rate': '0', 'IGST Amount': '0',
+      'Tax Amount': '2,710.75', 'Net Amount': '17,770.48', 'Thickness': '6', 'Length Name': '2.44',
+      'Width Name': '1.22', 'Product Group': 'FG_PLY WOOD_RF_ZZ', 'Sub Group Id': '',
+      'Sub Group Code': '', 'Product Subgroup': '', 'Brand Id': '103-Brand', 'Brand Code': '2',
+      'Segment Id': '103-Segment', 'Segment Code': 'P', 'Product Segment': 'P',
+      'General Ledger Code': '', 'General Ledger Description': '', 'HSN/SAC': '4412.31.90',
+      'Batch Number': '', 'Product Master FA': '2.977', 'Product Master NA': '4.466',
+      'Month': 'JANUARY', 'Year': '2026', 'Thickness Id': '103-Thickness', 'Thickness Code': '6',
+      'Length Code': '102440', 'Width Code': '101220', 'NTDSpecie Id': '103-NTDSpecie',
+      'NTDSpecie Code': '', 'NTDSpecie Name': '', 'Grade Id': '103-Grade', 'Grade Code': '0',
+      'Grade Name': '', 'SubBrand Id': '103-SubBrand', 'SubBrand Code': '39', 'Product Id': '',
+      'Product Code': '', 'Product Name': '', 'Design Id': '103-Design', 'Design Code': 'ZZ',
+      'Design Name': '', 'Category Id': '103-Category', 'Category Code': '1', 'Category Name': 'MR',
+      'Source Id': '103-Source', 'Source Code': 'RF', 'Source Name': 'Manufactured in Rajkot',
+      'Remarks': 'Based On Sales Orders 2300745.', 'Group Status': '', 'Group Grade': '',
+      'Group Size': '', 'Total Weight': '180.015', 'Sales Invoice No.': '', 'Sales Invoice Date': '',
+      'Debit/Credit Note Type': '',
+    }],
+  },
+
   monthly_attendance: {
     sheetName: 'Monthly_Working_Hour',
     fileName: 'Monthly_Attendance_Report_Format.xlsx',
@@ -572,6 +718,45 @@ function num(v) {
   const n = parseFloat(v)
   return isNaN(n) ? null : n
 }
+// Sales Dump specific helpers: source numbers are comma-formatted
+// (e.g. "17,159.76") and dates are M/D/YY with a 2-digit year (e.g. "1/1/26").
+function numClean(v) {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v === 'number') return v
+  const cleaned = String(v).replace(/,/g, '').trim()
+  if (cleaned === '') return null
+  const n = parseFloat(cleaned)
+  return isNaN(n) ? null : n
+}
+function intClean(v) {
+  const n = numClean(v)
+  return n === null ? null : Math.trunc(n)
+}
+function salesDumpDate(v) {
+  if (!v) return null
+  if (typeof v === 'number') {
+    const d = XLSX.SSF.parse_date_code(v)
+    if (!d) return null
+    return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
+  }
+  const s = String(v).trim()
+  if (!s) return null
+
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
+  if (m) {
+    const mm = Number(m[1])
+    const dd = Number(m[2])
+    let yyyy = Number(m[3])
+    if (yyyy < 100) yyyy += yyyy < 70 ? 2000 : 1900
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
+    }
+  }
+
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+}
+
 function excelDate(v) {
   if (!v) return null
   if (typeof v === 'number') {

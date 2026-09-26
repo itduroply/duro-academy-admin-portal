@@ -182,7 +182,42 @@ export default function SalesDataScreen({
         ? Object.values(allMapped.reduce((acc, row) => { acc[row[uniqueKey]] = row; return acc }, {}))
         : allMapped
 
-      if (mappedRows.length === 0) {
+      let preserveFieldByUniqueKey = new Map()
+      if (table === 'influencer_claim_details' && uniqueKey === 'claim_no' && mappedRows.length > 0) {
+        const uniqueValues = [...new Set(mappedRows.map(row => row[uniqueKey]).filter(Boolean))]
+        const chunkSize = 500
+        const existingRows = []
+
+        for (let i = 0; i < uniqueValues.length; i += chunkSize) {
+          const chunk = uniqueValues.slice(i, i + chunkSize)
+          const { data, error } = await supabase
+            .from(table)
+            .select(`${uniqueKey}, mapped_isr_code`)
+            .in(uniqueKey, chunk)
+
+          if (error) throw error
+          if (Array.isArray(data)) existingRows.push(...data)
+        }
+
+        preserveFieldByUniqueKey = new Map(
+          existingRows
+            .filter(row => row?.[uniqueKey])
+            .map(row => [row[uniqueKey], row.mapped_isr_code])
+        )
+      }
+
+      const rowsToUpload = preserveFieldByUniqueKey.size > 0
+        ? mappedRows.map(row => {
+            const existingMappedIsrCode = preserveFieldByUniqueKey.get(row[uniqueKey])
+            if (!existingMappedIsrCode) return row
+            return {
+              ...row,
+              mapped_isr_code: existingMappedIsrCode,
+            }
+          })
+        : mappedRows
+
+      if (rowsToUpload.length === 0) {
         await supabase
           .from('excel_upload_sessions')
           .update({
@@ -202,9 +237,9 @@ export default function SalesDataScreen({
         return
       }
 
-      const batches = Math.ceil(mappedRows.length / BATCH_SIZE)
+      const batches = Math.ceil(rowsToUpload.length / BATCH_SIZE)
       for (let i = 0; i < batches; i++) {
-        const batch = mappedRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
+        const batch = rowsToUpload.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
         let error
         if (uniqueKey) {
           ;({ error } = await supabase.from(table).upsert(batch, { onConflict: uniqueKey, ignoreDuplicates: false }))

@@ -2,11 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREENS } from '../config/permissions'
 import './Modules.css'
 
 function Modules() {
   const mountedRef = useRef(true)
   const { showNotification } = useNotification()
+  const { hasActionAccess } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addModuleModalOpen, setAddModuleModalOpen] = useState(false)
@@ -34,6 +37,10 @@ function Modules() {
   })
   const [searchTerm, setSearchTerm] = useState('')
   const [departmentSearch, setDepartmentSearch] = useState('')
+
+  const canViewModules = hasActionAccess(SCREENS.MODULES, 'view')
+  const canEditModules = hasActionAccess(SCREENS.MODULES, 'edit')
+  const canDeleteModules = hasActionAccess(SCREENS.MODULES, 'delete')
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen)
@@ -150,6 +157,11 @@ function Modules() {
   }
 
   const handleAddModule = async () => {
+    if (!canEditModules) {
+      showNotification('You do not have edit permission for Modules.', 'error')
+      return
+    }
+
     try {
       // Validate required fields
       if (!formData.title.trim()) {
@@ -263,6 +275,11 @@ function Modules() {
 
   const handleEditModule = async (module, e) => {
     e.stopPropagation()
+
+    if (!canEditModules) {
+      showNotification('You do not have edit permission for Modules.', 'error')
+      return
+    }
     
     try {
       // Fetch department access for this module
@@ -296,6 +313,11 @@ function Modules() {
 
   const handleDeleteModule = async (moduleId, e) => {
     e.stopPropagation()
+
+    if (!canDeleteModules) {
+      showNotification('You do not have delete permission for Modules.', 'error')
+      return
+    }
     
     if (!confirm('Are you sure you want to delete this module?')) {
       return
@@ -338,6 +360,11 @@ function Modules() {
   }
 
   const openDrawer = (module) => {
+    if (!canViewModules) {
+      showNotification('You do not have view permission for Modules.', 'error')
+      return
+    }
+
     setSelectedModule(module)
     setDrawerOpen(true)
     fetchVideosForModule(module.id)
@@ -388,7 +415,7 @@ function Modules() {
               <button className="btn btn-secondary" onClick={handleRefresh}>
                 <i className="fa-solid fa-arrows-rotate"></i>Refresh
               </button>
-              <button className="btn btn-primary" onClick={() => setAddModuleModalOpen(true)}>
+              <button className="btn btn-primary" onClick={() => setAddModuleModalOpen(true)} disabled={!canEditModules}>
                 <i className="fa-solid fa-plus"></i>Add Module
               </button>
             </div>
@@ -473,18 +500,27 @@ function Modules() {
                   </thead>
                   <tbody>
                     {filteredModules.map(module => (
-                      <tr key={module.id} className="module-row" onClick={() => openDrawer(module)}>
+                      <tr key={module.id} className="module-row" onClick={() => canViewModules && openDrawer(module)}>
                         <td className="font-medium">{module.title}</td>
                         <td>{module.description ? (module.description.length > 50 ? module.description.substring(0, 50) + '...' : module.description) : 'N/A'}</td>
                         <td>{module.categories?.name || getCategoryName(module.category_id)}</td>
                         <td>{formatDate(module.created_at)}</td>
                         <td className="text-right">
-                          <button className="action-btn edit-btn" onClick={(e) => handleEditModule(module, e)} title="Edit Module">
-                            <i className="fa-solid fa-pencil"></i>
-                          </button>
-                          <button className="action-btn delete-btn" onClick={(e) => handleDeleteModule(module.id, e)} title="Delete Module">
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
+                          {canViewModules && (
+                            <button className="action-btn" onClick={(e) => { e.stopPropagation(); openDrawer(module) }} title="View Module">
+                              <i className="fa-solid fa-eye"></i>
+                            </button>
+                          )}
+                          {canEditModules && (
+                            <button className="action-btn edit-btn" onClick={(e) => handleEditModule(module, e)} title="Edit Module">
+                              <i className="fa-solid fa-pencil"></i>
+                            </button>
+                          )}
+                          {canDeleteModules && (
+                            <button className="action-btn delete-btn" onClick={(e) => handleDeleteModule(module.id, e)} title="Delete Module">
+                              <i className="fa-solid fa-trash"></i>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -841,7 +877,7 @@ function Modules() {
                   department_ids: []
                 })
               }}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleAddModule}>
+              <button className="btn btn-primary" onClick={handleAddModule} disabled={!canEditModules}>
                 {editMode ? 'Update Module' : 'Save Module'}
               </button>
             </div>

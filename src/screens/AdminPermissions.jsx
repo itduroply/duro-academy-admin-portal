@@ -10,6 +10,50 @@ const MANAGEABLE_SCREENS = NAV_ITEMS.filter(
   item => item.screen !== SCREENS.ADMIN_PERMISSIONS
 )
 
+const PERMISSION_ACTIONS = ['view', 'edit', 'delete']
+
+const getDefaultActionPermissions = (allowedScreens = []) => {
+  const allowed = Array.isArray(allowedScreens) ? allowedScreens : []
+  return MANAGEABLE_SCREENS.reduce((accumulator, item) => {
+    const granted = allowed.includes(item.screen)
+    accumulator[item.screen] = {
+      view: granted,
+      edit: granted,
+      delete: granted,
+    }
+    return accumulator
+  }, {})
+}
+
+const normalizeActionPermissions = (rawPermissions, allowedScreens = []) => {
+  const fallback = getDefaultActionPermissions(allowedScreens)
+  if (!rawPermissions || typeof rawPermissions !== 'object' || Array.isArray(rawPermissions)) {
+    return fallback
+  }
+
+  const normalized = { ...fallback }
+
+  MANAGEABLE_SCREENS.forEach(({ screen }) => {
+    const screenPermissions = rawPermissions[screen]
+    if (!screenPermissions || typeof screenPermissions !== 'object' || Array.isArray(screenPermissions)) {
+      return
+    }
+
+    normalized[screen] = {
+      view: typeof screenPermissions.view === 'boolean' ? screenPermissions.view : fallback[screen].view,
+      edit: typeof screenPermissions.edit === 'boolean' ? screenPermissions.edit : fallback[screen].edit,
+      delete: typeof screenPermissions.delete === 'boolean' ? screenPermissions.delete : fallback[screen].delete,
+    }
+  })
+
+  return normalized
+}
+
+const isMissingActionPermissionsColumnError = (error) => {
+  const message = String(error?.message || '').toLowerCase()
+  return error?.code === '42703' || error?.code === 'PGRST204' || message.includes('action_permissions')
+}
+
 function AdminPermissions() {
   const mountedRef = useRef(true)
   const { showNotification } = useNotification()
@@ -17,6 +61,7 @@ function AdminPermissions() {
   const [admins, setAdmins] = useState([])
   const [selectedAdmin, setSelectedAdmin] = useState(null)
   const [permissions, setPermissions] = useState([])
+  const [actionPermissions, setActionPermissions] = useState(() => getDefaultActionPermissions([]))
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -53,12 +98,24 @@ function AdminPermissions() {
     setSelectedAdmin(admin)
     setSaveSuccess(false)
     try {
-      // Fetch existing permissions for this admin
-      const { data, error } = await supabase
+      // Fetch existing permissions for this admin.
+      // Fallback keeps compatibility when action_permissions column is not yet migrated.
+      let { data, error } = await supabase
         .from('admin_permissions')
-        .select('allowed_screens')
+        .select('allowed_screens, action_permissions')
         .eq('user_id', admin.id)
-        .single()
+        .maybeSingle()
+
+      if (error && isMissingActionPermissionsColumnError(error)) {
+        const fallbackResult = await supabase
+          .from('admin_permissions')
+          .select('allowed_screens')
+          .eq('user_id', admin.id)
+          .maybeSingle()
+
+        data = fallbackResult.data
+        error = fallbackResult.error
+      }
 
       if (error && error.code !== 'PGRST116') {
         // PGRST116 = no rows found (new admin, no permissions yet)
@@ -66,35 +123,82 @@ function AdminPermissions() {
       }
 
       if (data && data.allowed_screens) {
-        setPermissions(data.allowed_screens)
+        const allowedScreens = Array.isArray(data.allowed_screens) ? data.allowed_screens : []
+        setPermissions(allowedScreens)
+        setActionPermissions(normalizeActionPermissions(data.action_permissions, allowedScreens))
       } else {
         // Default: no permissions for new admin
         setPermissions([])
+        setActionPermissions(getDefaultActionPermissions([]))
       }
     } catch (error) {
       console.error('Error fetching permissions:', error)
       setPermissions([])
+      setActionPermissions(getDefaultActionPermissions([]))
     }
   }
 
   const togglePermission = (screenKey) => {
-    setPermissions(prev => {
-      if (prev.includes(screenKey)) {
-        return prev.filter(s => s !== screenKey)
-      } else {
-        return [...prev, screenKey]
+    const hasPermission = permissions.includes(screenKey)
+    const nextPermissions = hasPermission
+      ? permissions.filter(screen => screen !== screenKey)
+      : [...permissions, screenKey]
+
+    setPermissions(nextPermissions)
+    setActionPermissions(prev => {
+      const current = prev[screenKey] || { view: false, edit: false, delete: false }
+      return {
+        ...prev,
+        [screenKey]: hasPermission
+          ? { view: false, edit: false, delete: false }
+          : { view: true, edit: current.edit, delete: current.delete }
+      }
+    })
+    setSaveSuccess(false)
+  }
+
+  const toggleActionPermission = (screenKey, action) => {
+    setActionPermissions(prev => {
+      const current = prev[screenKey] || { view: false, edit: false, delete: false }
+      const nextValue = !current[action]
+      let nextForScreen = { ...current, [action]: nextValue }
+
+      if (action === 'view') {
+        if (!nextValue) {
+          nextForScreen = { view: false, edit: false, delete: false }
+          setPermissions(prevScreens => prevScreens.filter(screen => screen !== screenKey))
+        } else {
+          setPermissions(prevScreens => (prevScreens.includes(screenKey)
+            ? prevScreens
+            : [...prevScreens, screenKey]))
+        }
+      }
+
+      if ((action === 'edit' || action === 'delete') && nextValue) {
+        nextForScreen.view = true
+        setPermissions(prevScreens => (prevScreens.includes(screenKey)
+          ? prevScreens
+          : [...prevScreens, screenKey]))
+      }
+
+      return {
+        ...prev,
+        [screenKey]: nextForScreen
       }
     })
     setSaveSuccess(false)
   }
 
   const selectAll = () => {
-    setPermissions(MANAGEABLE_SCREENS.map(item => item.screen))
+    const allScreens = MANAGEABLE_SCREENS.map(item => item.screen)
+    setPermissions(allScreens)
+    setActionPermissions(getDefaultActionPermissions(allScreens))
     setSaveSuccess(false)
   }
 
   const deselectAll = () => {
     setPermissions([])
+    setActionPermissions(getDefaultActionPermissions([]))
     setSaveSuccess(false)
   }
 
@@ -104,17 +208,34 @@ function AdminPermissions() {
       setSaving(true)
 
       // Upsert: insert if not exists, update if exists
-      const { error } = await supabase
+      let { error } = await supabase
         .from('admin_permissions')
         .upsert(
           {
             user_id: selectedAdmin.id,
             allowed_screens: permissions,
+            action_permissions: actionPermissions,
             updated_by: currentUser?.id || null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'user_id' }
         )
+
+      if (error && isMissingActionPermissionsColumnError(error)) {
+        const retryResult = await supabase
+          .from('admin_permissions')
+          .upsert(
+            {
+              user_id: selectedAdmin.id,
+              allowed_screens: permissions,
+              updated_by: currentUser?.id || null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id' }
+          )
+
+        error = retryResult.error
+      }
 
       if (error) throw error
 
@@ -229,6 +350,7 @@ function AdminPermissions() {
                 <div className="ap-permission-grid">
                   {MANAGEABLE_SCREENS.map(item => {
                     const isGranted = permissions.includes(item.screen)
+                    const screenActions = actionPermissions[item.screen] || { view: false, edit: false, delete: false }
                     return (
                       <div
                         key={item.screen}
@@ -239,6 +361,25 @@ function AdminPermissions() {
                           <i className={item.icon}></i>
                         </div>
                         <span className="ap-perm-label">{item.label}</span>
+                        <div className="ap-perm-actions" onClick={(e) => e.stopPropagation()}>
+                          {PERMISSION_ACTIONS.map(action => {
+                            const isEnabled = Boolean(screenActions[action])
+                            return (
+                              <button
+                                type="button"
+                                key={`${item.screen}-${action}`}
+                                className={`ap-action-chip ${isEnabled ? 'enabled' : 'disabled'}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleActionPermission(item.screen, action)
+                                }}
+                                title={`${action.charAt(0).toUpperCase()}${action.slice(1)} permission`}
+                              >
+                                {action.charAt(0).toUpperCase()}
+                              </button>
+                            )
+                          })}
+                        </div>
                         <div className={`ap-toggle ${isGranted ? 'on' : 'off'}`}>
                           <div className="ap-toggle-knob"></div>
                         </div>

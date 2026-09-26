@@ -2,11 +2,14 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREENS } from '../config/permissions'
 import * as XLSX from 'xlsx'
 import './Users.css'
 
 function Users() {
   const { showNotification } = useNotification()
+  const { hasActionAccess } = useAuth()
   const mountedRef = useRef(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -54,6 +57,10 @@ function Users() {
     designation_id: ''
   })
   const [errorMessage, setErrorMessage] = useState('')
+
+  const canViewUsers = hasActionAccess(SCREENS.USERS, 'view')
+  const canEditUsers = hasActionAccess(SCREENS.USERS, 'edit')
+  const canDeleteUsers = hasActionAccess(SCREENS.USERS, 'delete')
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen)
@@ -409,6 +416,11 @@ function Users() {
   ]
 
   const openDrawer = (user) => {
+    if (!canViewUsers) {
+      showNotification('You do not have view permission for Users.', 'error')
+      return
+    }
+
     setSelectedUser(user)
     setDrawerOpen(true)
     // Initialize charts after drawer opens
@@ -434,6 +446,11 @@ function Users() {
   }
 
   const openEditModal = async (user) => {
+    if (!canEditUsers) {
+      showNotification('You do not have edit permission for Users.', 'error')
+      return
+    }
+
     try {
       // Fetch the full user data from database
       const { data, error } = await supabase
@@ -483,6 +500,11 @@ function Users() {
 
   const handleAddUser = async (e) => {
     e.preventDefault()
+
+    if (!canEditUsers) {
+      showNotification('You do not have edit permission for Users.', 'error')
+      return
+    }
     
     try {
       setLoading(true)
@@ -600,6 +622,11 @@ function Users() {
 
   const handleUpdateUser = async (e) => {
     e.preventDefault()
+
+    if (!canEditUsers) {
+      showNotification('You do not have edit permission for Users.', 'error')
+      return
+    }
     
     try {
       setLoading(true)
@@ -707,6 +734,11 @@ function Users() {
   }
 
   const handleDeleteUser = async (user) => {
+    if (!canDeleteUsers) {
+      showNotification('You do not have delete permission for Users.', 'error')
+      return
+    }
+
     try {
       if (!user?.id) return
       const ok = window.confirm(`Delete user "${user.name}"? This removes their row in public.users.`)
@@ -737,6 +769,11 @@ function Users() {
 
   const handleToggleStatus = async (e, user) => {
     e.stopPropagation()
+    if (!canEditUsers) {
+      showNotification('You do not have edit permission for Users.', 'error')
+      return
+    }
+
     try {
       const newStatus = user.status === 'Active' ? 'inactive' : 'active'
 
@@ -882,6 +919,11 @@ function Users() {
 
   // Process bulk upload
   const handleBulkUpload = async () => {
+    if (!canEditUsers) {
+      showNotification('You do not have edit permission for Users.', 'error')
+      return
+    }
+
     if (!uploadedFile) {
       showNotification('Please select a file first', 'warning')
       return
@@ -1099,7 +1141,7 @@ function Users() {
                 <i className={`fa-solid ${exportingUsers ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
                 {exportingUsers ? 'Exporting...' : 'Download Users'}
               </button>
-              <button className="btn btn-secondary" onClick={() => setBulkUploadModalOpen(true)}>
+              <button className="btn btn-secondary" onClick={() => setBulkUploadModalOpen(true)} disabled={!canEditUsers}>
                 <i className="fa-solid fa-file-excel"></i>Bulk Upload
               </button>
               <button className="btn btn-primary" onClick={() => {
@@ -1108,7 +1150,7 @@ function Users() {
                   Promise.all([fetchRegions(), fetchBranches(), fetchSubBranches(), fetchSubDepartments(), fetchGrades()])
                 }
                 setAddUserModalOpen(true)
-              }}>
+              }} disabled={!canEditUsers}>
                 <i className="fa-solid fa-user-plus"></i>Add New User
               </button>
             </div>
@@ -1190,7 +1232,7 @@ function Users() {
                   ) : (
                     filteredUsers
                       .map(user => (
-                      <tr key={user.id} className="user-row" onClick={() => openDrawer(user)}>
+                      <tr key={user.id} className="user-row" onClick={() => canViewUsers && openDrawer(user)}>
                         <td className="user-cell">
                           <div>
                             <div className="user-name">{user.name}</div>
@@ -1214,6 +1256,7 @@ function Users() {
                               onChange={(e) => handleToggleStatus(e, user)}
                               onClick={(e) => e.stopPropagation()}
                               title={`Click to toggle to ${user.status === 'Active' ? 'Inactive' : 'Active'}`}
+                              disabled={!canEditUsers}
                             />
                             <span className="slider"></span>
                             <span className="toggle-label">{user.status === 'Active' ? 'Active' : 'Inactive'}</span>
@@ -1221,12 +1264,21 @@ function Users() {
                         </td>
                         <td>
                           <div className="action-buttons">
-                            <button className="action-btn edit-btn" onClick={(e) => { e.stopPropagation(); openEditModal(user); }}>
-                              <i className="fa-solid fa-pen-to-square"></i>
-                            </button>
-                            <button className="action-btn delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteUser(user) }}>
-                              <i className="fa-solid fa-trash-can"></i>
-                            </button>
+                            {canViewUsers && (
+                              <button className="action-btn" onClick={(e) => { e.stopPropagation(); openDrawer(user); }} title="View details">
+                                <i className="fa-solid fa-eye"></i>
+                              </button>
+                            )}
+                            {canEditUsers && (
+                              <button className="action-btn edit-btn" onClick={(e) => { e.stopPropagation(); openEditModal(user); }} title="Edit user">
+                                <i className="fa-solid fa-pen-to-square"></i>
+                              </button>
+                            )}
+                            {canDeleteUsers && (
+                              <button className="action-btn delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteUser(user) }} title="Delete user">
+                                <i className="fa-solid fa-trash-can"></i>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1643,7 +1695,7 @@ function Users() {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  disabled={loading}
+                  disabled={loading || !canEditUsers}
                 >
                   {loading ? 'Creating...' : 'Create User'}
                 </button>
@@ -1996,7 +2048,7 @@ function Users() {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  disabled={loading}
+                  disabled={loading || !canEditUsers}
                 >
                   {loading ? 'Updating...' : 'Update User'}
                 </button>
@@ -2104,7 +2156,7 @@ function Users() {
                   type="button" 
                   className="btn btn-primary"
                   onClick={handleBulkUpload}
-                  disabled={loading || !uploadedFile}
+                  disabled={loading || !uploadedFile || !canEditUsers}
                 >
                   {loading ? 'Uploading...' : 'Upload Users'}
                 </button>

@@ -1,75 +1,91 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
 import './OrgChart.css'
 
-function buildOrgTree(users) {
-  const userByEmployeeId = new Map()
+function buildOrgModel(users) {
+  const nodesByEmployeeId = new Map()
+  const childrenByManagerId = new Map()
   const rootNodes = []
 
   users.forEach(user => {
     const employeeId = (user.employeeId || '').trim()
     if (!employeeId) return
-    userByEmployeeId.set(employeeId, { ...user, children: [] })
+    nodesByEmployeeId.set(employeeId, { ...user })
   })
 
-  userByEmployeeId.forEach((node) => {
+  nodesByEmployeeId.forEach((node) => {
     const managerId = (node.reportingManager || '').trim()
-    const managerNode = managerId ? userByEmployeeId.get(managerId) : null
+    const managerNode = managerId ? nodesByEmployeeId.get(managerId) : null
 
     if (managerNode && managerNode.employeeId !== node.employeeId) {
-      managerNode.children.push(node)
-    } else {
-      rootNodes.push(node)
+      const reports = childrenByManagerId.get(managerId) || []
+      reports.push(node)
+      childrenByManagerId.set(managerId, reports)
+      return
     }
+
+    rootNodes.push(node)
   })
 
-  const sortTree = (nodes) => {
-    nodes.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-    nodes.forEach(node => sortTree(node.children))
+  rootNodes.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  childrenByManagerId.forEach((children, managerId) => {
+    children.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    childrenByManagerId.set(managerId, children)
+  })
+
+  return {
+    nodesByEmployeeId,
+    childrenByManagerId,
+    rootNodes
+  }
+}
+
+const clampZoom = (value) => Math.min(1.4, Math.max(0.65, value))
+
+const matchesQuery = (user, query) => {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return true
+
+  return [user.name, user.employeeId, user.designation, user.department, user.branch]
+    .some(value => (value || '').toLowerCase().includes(normalizedQuery))
+}
+
+function getManagerChain(user, nodesByEmployeeId) {
+  const chain = []
+  let currentManagerId = (user?.reportingManager || '').trim()
+
+  while (currentManagerId) {
+    const managerNode = nodesByEmployeeId.get(currentManagerId)
+    if (!managerNode) break
+    chain.unshift(managerNode)
+    currentManagerId = (managerNode.reportingManager || '').trim()
   }
 
-  sortTree(rootNodes)
-  return rootNodes
+  return chain
 }
 
-const getTrackClass = (department = '') => {
-  const value = department.toLowerCase()
-  if (value.includes('sales') || value.includes('marketing')) return 'sales'
-  return 'engineering'
-}
-
-const TreeNode = ({ node }) => {
-  const hasChildren = node.children.length > 0
-  const directReportsText = `${node.children.length} direct report${node.children.length === 1 ? '' : 's'}`
-  const trackClass = getTrackClass(node.department)
+function EmployeeCard({ user, variant = 'default', onSelect }) {
+  const className = variant === 'focus'
+    ? 'org-person-card is-focus'
+    : variant === 'manager'
+      ? 'org-person-card is-manager'
+      : 'org-person-card'
 
   return (
-    <li className="org-node-item">
-      <div className={`org-node-card ${node.isRoot ? 'is-root' : ''} org-track-${trackClass}`}>
-        <span className="org-node-accent" aria-hidden="true"></span>
-        <div className="org-node-avatar">{node.initials}</div>
-        <div className="org-node-content">
-          <h3>{node.name}</h3>
-          <p>{node.designation}</p>
-          <span className="org-node-detail">
-            {hasChildren ? directReportsText : (node.department || node.branch || 'Unassigned')}
-          </span>
-        </div>
-      </div>
-
-      {hasChildren && (
-        <ul className="org-tree-children">
-          {node.children.map((child) => (
-            <TreeNode
-              key={child.id}
-              node={child}
-            />
-          ))}
-        </ul>
-      )}
-    </li>
+    <button
+      type="button"
+      className={className}
+      onClick={() => onSelect?.(user.employeeId)}
+    >
+      <span className="org-person-topbar" aria-hidden="true"></span>
+      <div className="org-person-avatar">{user.initials}</div>
+      <div className="org-person-name">{user.name}</div>
+      <div className="org-person-id">{user.employeeId || 'No ID'}</div>
+      <div className="org-person-role">{user.designation || 'Unassigned'}</div>
+      <div className="org-person-meta">{user.department || user.branch || 'No department'}</div>
+    </button>
   )
 }
 
@@ -78,10 +94,8 @@ function OrgChart() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [fitScale, setFitScale] = useState(1)
-  const [scaledSize, setScaledSize] = useState({ width: 0, height: 0 })
-  const shellRef = useRef(null)
-  const treeRef = useRef(null)
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
+  const [zoom, setZoom] = useState(1)
 
   useEffect(() => {
     fetchUsers()
@@ -160,58 +174,66 @@ function OrgChart() {
     }
   }
 
-  const treeData = useMemo(() => {
-    const filteredUsers = searchQuery.trim()
-      ? users.filter(user => {
-          const query = searchQuery.toLowerCase()
-          return (
-            (user.name || '').toLowerCase().includes(query) ||
-            (user.employeeId || '').toLowerCase().includes(query) ||
-            (user.designation || '').toLowerCase().includes(query) ||
-            (user.department || '').toLowerCase().includes(query) ||
-            (user.branch || '').toLowerCase().includes(query)
-          )
-        })
-      : users
+  const orgModel = useMemo(() => buildOrgModel(users), [users])
 
-    return buildOrgTree(filteredUsers).map(node => ({ ...node, isRoot: true }))
+  const matchingUsers = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    return users.filter(user => matchesQuery(user, searchQuery)).slice(0, 8)
+  }, [users, searchQuery])
+
+  const defaultFocusId = useMemo(() => {
+    const firstManagerWithManager = users.find(user => {
+      const employeeId = (user.employeeId || '').trim()
+      const hasManager = Boolean((user.reportingManager || '').trim())
+      const hasReports = (orgModel.childrenByManagerId.get(employeeId) || []).length > 0
+      return employeeId && hasManager && hasReports
+    })
+
+    if (firstManagerWithManager) return firstManagerWithManager.employeeId
+
+    const firstRootWithReports = orgModel.rootNodes.find(user => {
+      const employeeId = (user.employeeId || '').trim()
+      return (orgModel.childrenByManagerId.get(employeeId) || []).length > 0
+    })
+
+    return firstRootWithReports?.employeeId || users[0]?.employeeId || ''
+  }, [orgModel, users])
+
+  useEffect(() => {
+    if (!defaultFocusId) return
+    if (selectedEmployeeId && orgModel.nodesByEmployeeId.has(selectedEmployeeId)) return
+    setSelectedEmployeeId(defaultFocusId)
+  }, [defaultFocusId, orgModel, selectedEmployeeId])
+
+  useEffect(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase()
+    if (!normalizedQuery) return
+
+    const exactMatch = users.find(user => {
+      const name = (user.name || '').toLowerCase()
+      const employeeId = (user.employeeId || '').toLowerCase()
+      return name === normalizedQuery || employeeId === normalizedQuery
+    })
+
+    if (exactMatch && exactMatch.employeeId !== selectedEmployeeId) {
+      setSelectedEmployeeId(exactMatch.employeeId)
+    }
   }, [users, searchQuery])
 
   const totalUsers = users.length
-  const totalRoots = treeData.length
+  const totalRoots = orgModel.rootNodes.length
+  const focusedUser = selectedEmployeeId ? orgModel.nodesByEmployeeId.get(selectedEmployeeId) : null
+  const managerChain = focusedUser ? getManagerChain(focusedUser, orgModel.nodesByEmployeeId) : []
+  const directReports = focusedUser
+    ? (orgModel.childrenByManagerId.get(focusedUser.employeeId) || [])
+    : []
+  const viewingLabel = searchQuery.trim() ? 'Focused' : 'Default'
+  const selectedRootManager = managerChain[0] || focusedUser
 
-  useEffect(() => {
-    const applyFitScale = () => {
-      if (!shellRef.current || !treeRef.current || loading || treeData.length === 0) return
-
-      const shell = shellRef.current
-      const tree = treeRef.current
-
-      const naturalWidth = tree.scrollWidth
-      const naturalHeight = tree.scrollHeight
-      const availableWidth = Math.max(shell.clientWidth - 16, 1)
-      const availableHeight = Math.max(shell.clientHeight - 16, 1)
-
-      const widthScale = availableWidth / Math.max(naturalWidth, 1)
-      const heightScale = availableHeight / Math.max(naturalHeight, 1)
-      const nextScale = Math.min(1, widthScale, heightScale)
-      const clampedScale = Math.max(nextScale, 0.1)
-
-      setFitScale(clampedScale)
-      setScaledSize({
-        width: Math.ceil(naturalWidth * clampedScale),
-        height: Math.ceil(naturalHeight * clampedScale)
-      })
-    }
-
-    const frame = window.requestAnimationFrame(applyFitScale)
-    window.addEventListener('resize', applyFitScale)
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.removeEventListener('resize', applyFitScale)
-    }
-  }, [treeData, loading])
+  const handleSelectEmployee = (employeeId) => {
+    setSelectedEmployeeId(employeeId)
+    setZoom(1)
+  }
 
   return (
     <div className="org-chart-page">
@@ -233,48 +255,116 @@ function OrgChart() {
         </div>
         <div className="org-stat-card">
           <span>Showing</span>
-          <strong>{searchQuery.trim() ? 'Filtered' : 'All'}</strong>
+          <strong>{viewingLabel}</strong>
         </div>
       </div>
 
       <div className="org-chart-toolbar">
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search employee, designation, department, or branch"
-        />
+        <div className="org-chart-search">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search employee, designation, department, or branch"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="org-clear-search"
+              onClick={() => setSearchQuery('')}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div className="org-chart-zoom-controls">
+          <button type="button" onClick={() => setZoom(current => clampZoom(current - 0.1))}>-</button>
+          <span>{Math.round(zoom * 100)}%</span>
+          <button type="button" onClick={() => setZoom(current => clampZoom(current + 0.1))}>+</button>
+        </div>
       </div>
 
       {loading ? (
         <div className="org-chart-empty">Loading organisation chart...</div>
-      ) : treeData.length === 0 ? (
-        <div className="org-chart-empty">No users found for the current filter.</div>
+      ) : !focusedUser ? (
+        <div className="org-chart-empty">No users available to render the organisation chart.</div>
       ) : (
-        <div className="org-tree-shell" ref={shellRef}>
-          <div
-            className="org-tree-fit-stage"
-            style={{
-              width: scaledSize.width ? `${scaledSize.width}px` : '100%',
-              height: scaledSize.height ? `${scaledSize.height}px` : '100%'
-            }}
-          >
-            <div
-              className="org-tree-fit-content"
-              ref={treeRef}
-              style={{ transform: `scale(${fitScale})` }}
-            >
-              <ul className="org-tree-root">
-                {treeData.map(node => (
-                  <TreeNode
-                    key={node.id}
-                    node={node}
-                  />
-                ))}
-              </ul>
+        <>
+          {searchQuery.trim() && (
+            <div className="org-search-results">
+              {matchingUsers.length > 0 ? (
+                matchingUsers.map(user => (
+                  <button
+                    type="button"
+                    key={user.id}
+                    className={`org-search-result ${user.employeeId === selectedEmployeeId ? 'is-active' : ''}`}
+                    onClick={() => handleSelectEmployee(user.employeeId)}
+                  >
+                    <strong>{user.name}</strong>
+                    <span>{user.designation}</span>
+                    <small>{user.employeeId}</small>
+                  </button>
+                ))
+              ) : (
+                <div className="org-chart-empty compact">No employee matches that search.</div>
+              )}
+            </div>
+          )}
+
+          <div className="org-chart-focusbar">
+            <div>
+              <span className="org-focus-label">Focused Employee</span>
+              <strong>{focusedUser.name}</strong>
+            </div>
+            <div>
+              <span className="org-focus-label">Root Manager</span>
+              <strong>{selectedRootManager?.name || 'N/A'}</strong>
+            </div>
+            <div>
+              <span className="org-focus-label">Direct Reports</span>
+              <strong>{directReports.length}</strong>
             </div>
           </div>
-        </div>
+
+          <div className="org-tree-shell">
+            <div className="org-tree-canvas" style={{ transform: `scale(${zoom})` }}>
+              <div className="org-tree-lineage">
+                {managerChain.map((manager, index) => (
+                  <div className="org-lineage-node" key={manager.id}>
+                    <EmployeeCard user={manager} variant="manager" onSelect={handleSelectEmployee} />
+                    <div className="org-line-connector" aria-hidden="true">
+                      <span className="org-line-dot"></span>
+                    </div>
+                    {index < managerChain.length - 1 && <div className="org-line-spacer" aria-hidden="true"></div>}
+                  </div>
+                ))}
+
+                <div className="org-lineage-node is-focused">
+                  <EmployeeCard user={focusedUser} variant="focus" onSelect={handleSelectEmployee} />
+                </div>
+
+                {directReports.length > 0 ? (
+                  <div className="org-descendants-block">
+                    <div className="org-line-connector is-branch" aria-hidden="true">
+                      <span className="org-line-dot"></span>
+                    </div>
+                    <div className="org-children-grid">
+                      {directReports.map((report) => (
+                        <div className="org-child-item" key={report.id}>
+                          <div className="org-child-stem" aria-hidden="true"></div>
+                          <EmployeeCard user={report} onSelect={handleSelectEmployee} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="org-chart-empty compact">This employee does not have direct reports.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

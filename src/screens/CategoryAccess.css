@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════════════════
-   Category Access - Styles
+   Module Management - Styles
    ═══════════════════════════════════════════════════════ */
 
 .ca-main {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 2rem;
 }

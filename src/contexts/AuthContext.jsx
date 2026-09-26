@@ -26,11 +26,17 @@ function clearCachedAuth() {
   } catch {}
 }
 
+function isMissingActionPermissionsColumnError(error) {
+  const message = String(error?.message || '').toLowerCase()
+  return error?.code === '42703' || error?.code === 'PGRST204' || message.includes('action_permissions')
+}
+
 export function AuthProvider({ children }) {
   const cachedAuth = getCachedAuth()
   const [user, setUser] = useState(cachedAuth?.user || null)
   const [role, setRole] = useState(cachedAuth?.role || null)
   const [allowedScreens, setAllowedScreens] = useState(cachedAuth?.allowedScreens || null)
+  const [actionPermissions, setActionPermissions] = useState(cachedAuth?.actionPermissions || null)
   const [loading, setLoading] = useState(!cachedAuth)
   const [isAuthenticated, setIsAuthenticated] = useState(!!cachedAuth)
   const fetchingRef = useRef(false)
@@ -47,6 +53,7 @@ export function AuthProvider({ children }) {
         setUser(null)
         setRole(null)
         setAllowedScreens(null)
+        setActionPermissions(null)
         setIsAuthenticated(false)
         setLoading(false)
       }
@@ -64,6 +71,7 @@ export function AuthProvider({ children }) {
         setUser(null)
         setRole(null)
         setAllowedScreens(null)
+        setActionPermissions(null)
         setIsAuthenticated(false)
         setLoading(false)
       }
@@ -89,6 +97,7 @@ export function AuthProvider({ children }) {
         setUser(null)
         setRole(null)
         setAllowedScreens(null)
+        setActionPermissions(null)
         setIsAuthenticated(false)
         return
       }
@@ -100,17 +109,23 @@ export function AuthProvider({ children }) {
         setRole(userData.role)
         setIsAuthenticated(true)
 
-        let screens = null
+        let permissionBundle = { screens: null, actions: null }
         // For admin role, fetch DB-based permissions
         if (userData.role === 'admin') {
-          screens = await fetchAdminPermissions(userData.id)
+          permissionBundle = await fetchAdminPermissions(userData.id)
         }
 
         // Cache auth data for instant load on next visit
-        setCachedAuth({ user: userData, role: userData.role, allowedScreens: screens })
+        setCachedAuth({
+          user: userData,
+          role: userData.role,
+          allowedScreens: permissionBundle.screens,
+          actionPermissions: permissionBundle.actions,
+        })
       } else {
         authedEmailRef.current = null
         clearCachedAuth()
+        setActionPermissions(null)
         setIsAuthenticated(false)
         await supabase.auth.signOut()
       }
@@ -118,6 +133,7 @@ export function AuthProvider({ children }) {
       console.error('Error fetching user role:', error)
       authedEmailRef.current = null
       clearCachedAuth()
+      setActionPermissions(null)
       setIsAuthenticated(false)
     } finally {
       fetchingRef.current = false
@@ -127,28 +143,46 @@ export function AuthProvider({ children }) {
 
   const fetchAdminPermissions = async (userId) => {
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('admin_permissions')
-        .select('allowed_screens')
+        .select('allowed_screens, action_permissions')
         .eq('user_id', userId)
         .single()
+
+      if (error && isMissingActionPermissionsColumnError(error)) {
+        const fallbackResult = await supabase
+          .from('admin_permissions')
+          .select('allowed_screens')
+          .eq('user_id', userId)
+          .single()
+
+        data = fallbackResult.data
+        error = fallbackResult.error
+      }
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching admin permissions:', error)
       }
 
       if (data && data.allowed_screens) {
-        setAllowedScreens(data.allowed_screens)
-        return data.allowed_screens
+        const screens = Array.isArray(data.allowed_screens) ? data.allowed_screens : []
+        const actions = data.action_permissions && typeof data.action_permissions === 'object' && !Array.isArray(data.action_permissions)
+          ? data.action_permissions
+          : null
+        setAllowedScreens(screens)
+        setActionPermissions(actions)
+        return { screens, actions }
       } else {
         // No DB permissions found — fall back to static config
         setAllowedScreens(null)
-        return null
+        setActionPermissions(null)
+        return { screens: null, actions: null }
       }
     } catch (error) {
       console.error('Error fetching admin permissions:', error)
       setAllowedScreens(null)
-      return null
+      setActionPermissions(null)
+      return { screens: null, actions: null }
     }
   }
 
@@ -174,11 +208,38 @@ export function AuthProvider({ children }) {
     return permissions.includes(screenKey)
   }
 
+  const hasActionAccess = (screenKey, action = 'view') => {
+    if (!role) return false
+    if (role === 'super_admin') return true
+
+    const normalizedAction = ['view', 'edit', 'delete'].includes(action) ? action : 'view'
+    if (!hasAccess(screenKey)) return false
+
+    if (normalizedAction === 'view') return true
+
+    const screenActions = actionPermissions?.[screenKey]
+    if (!screenActions || typeof screenActions !== 'object') {
+      // Backward compatibility for old rows that only had allowed_screens.
+      return true
+    }
+
+    if (typeof screenActions[normalizedAction] === 'boolean') {
+      return screenActions[normalizedAction]
+    }
+
+    return true
+  }
+
   // Allow refreshing permissions (used after saving in AdminPermissions screen)
   const refreshPermissions = async () => {
     if (user && role === 'admin') {
-      const screens = await fetchAdminPermissions(user.id)
-      setCachedAuth({ user, role, allowedScreens: screens })
+      const permissionBundle = await fetchAdminPermissions(user.id)
+      setCachedAuth({
+        user,
+        role,
+        allowedScreens: permissionBundle.screens,
+        actionPermissions: permissionBundle.actions,
+      })
     }
   }
 
@@ -187,7 +248,10 @@ export function AuthProvider({ children }) {
     role,
     loading,
     isAuthenticated,
+    allowedScreens,
+    actionPermissions,
     hasAccess,
+    hasActionAccess,
     refreshPermissions,
   }
 

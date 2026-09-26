@@ -17,11 +17,15 @@ const BREADCRUMB_MAP = {
   '/quiz-builder': 'Quiz Builder',
   '/assignment-results': 'Assignment Results',
   '/video-progress': 'Video Progress',
+  '/team-performance': 'Team Performance',
   '/active-logins': 'Active Logins',
-  '/assign-modules': 'Assign Modules',
+  '/assign-modules': 'Mandatory Modules',
   '/admin-permissions': 'Admin Permissions',
   '/performance-branch-access': 'Branch Access',
   '/goal-master': 'Goal Master',
+  '/combined-performance-dashboard': 'Combined Performance',
+  '/dbm-sm-performance-dashboard': 'DBM & SM Performance',
+  '/dealer-management': 'Dealer Management',
 }
 
 function AdminLayout() {

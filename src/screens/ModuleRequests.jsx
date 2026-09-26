@@ -2,11 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREENS } from '../config/permissions'
 import './ModuleRequests.css'
 
 function ModuleRequests() {
   const mountedRef = useRef(true)
   const { showNotification } = useNotification()
+  const { hasActionAccess } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('pending')
   const [requests, setRequests] = useState([])
@@ -14,6 +17,8 @@ function ModuleRequests() {
   const [error, setError] = useState(null)
   const [adminNotes, setAdminNotes] = useState({})
   const [processingRequest, setProcessingRequest] = useState(null)
+
+  const canEditRequests = hasActionAccess(SCREENS.MODULE_REQUESTS, 'edit')
 
   const breadcrumbItems = [
     { label: 'Home', link: true },
@@ -119,6 +124,11 @@ function ModuleRequests() {
   }
 
   const handleApproveRequest = async (requestId, moduleId, userId) => {
+    if (!canEditRequests) {
+      showNotification('You do not have edit permission for Module Requests.', 'error')
+      return
+    }
+
     try {
       setProcessingRequest(requestId)
       const { data: { user } } = await supabase.auth.getUser()
@@ -164,6 +174,11 @@ function ModuleRequests() {
   }
 
   const handleRejectRequest = async (requestId) => {
+    if (!canEditRequests) {
+      showNotification('You do not have edit permission for Module Requests.', 'error')
+      return
+    }
+
     if (!adminNotes[requestId]?.trim()) {
       showNotification('Please provide a reason for rejection in the admin notes', 'warning')
       return
@@ -409,13 +424,14 @@ function ModuleRequests() {
                               ...adminNotes, 
                               [request.id]: e.target.value 
                             })}
+                            disabled={!canEditRequests}
                           />
                         </div>
                         <div className="action-buttons">
                           <button 
                             className="btn btn-danger"
                             onClick={() => handleRejectRequest(request.id)}
-                            disabled={processingRequest === request.id}
+                            disabled={!canEditRequests || processingRequest === request.id}
                           >
                             {processingRequest === request.id ? (
                               <>
@@ -436,7 +452,7 @@ function ModuleRequests() {
                               request.module_id, 
                               request.user_id
                             )}
-                            disabled={processingRequest === request.id}
+                            disabled={!canEditRequests || processingRequest === request.id}
                           >
                             {processingRequest === request.id ? (
                               <>

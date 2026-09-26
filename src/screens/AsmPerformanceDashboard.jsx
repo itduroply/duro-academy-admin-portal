@@ -30,6 +30,7 @@ const MONTH_LABELS = {
 
 const BRAND_ORDER = ['Duro Deco', 'Duro VAP', 'Duro', 'Tower']
 const TIER_ORDER = ['Titanium', 'Gold', 'Silver', 'Bronze', 'Base Tier']
+const DEFAULT_ASM_ACCESS_TYPES = ['ASM']
 
 function getQuarterFactor(month) {
   if ([4, 5, 6].includes(month)) return 0.9
@@ -390,10 +391,36 @@ function getInsight(totalPercentage, totalGoalPoints) {
   }
 }
 
-export default function AsmPerformanceDashboard() {
+export default function AsmPerformanceDashboard({
+  accessTypeFilters = DEFAULT_ASM_ACCESS_TYPES,
+  pageTitle = 'DURO Lakshya Dashboard ASM',
+  pageSubtitle = 'ASM-level dashboard for users assigned with ASM access in Assign Performance Dashboard',
+  userListTitle = 'Assigned ASM Users',
+  userListEmpty = 'No ASM users assigned in Assign Performance Dashboard.',
+  reportKind = 'ASM',
+  reportLabel = 'ASM',
+  bulkReportLabel = 'ASM',
+  loadingMessage = 'Loading ASM performance...',
+  emptyDetailMessage = 'No data available for this ASM.',
+  emptySelectionMessage = 'Select an ASM to view DURO Lakshya dashboard details.',
+} = {}) {
   const mountedRef = useRef(true)
   const auth = useContext(AuthContext)
   const { user: authUser, role } = auth || {}
+
+  const normalizedAccessTypeFilters = useMemo(() => {
+    const rawValues = Array.isArray(accessTypeFilters) ? accessTypeFilters : [accessTypeFilters]
+    return [...new Set(rawValues
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+      .map(value => value.toUpperCase()))]
+  }, [accessTypeFilters])
+
+  const currentReportLabel = reportLabel || bulkReportLabel || reportKind || 'ASM'
+  const usersCacheKey = useMemo(() => {
+    const suffix = normalizedAccessTypeFilters.map(type => type.toLowerCase()).join('_') || 'asm'
+    return `perf_dashboard_assigned_users_${suffix}`
+  }, [normalizedAccessTypeFilters])
 
   const [users, setUsers] = useState([])
   const [usersLoading, setUsersLoading] = useState(true)
@@ -414,6 +441,7 @@ export default function AsmPerformanceDashboard() {
   const [adminAllowedBranchIds, setAdminAllowedBranchIds] = useState([])
   const [selectedDgoModal, setSelectedDgoModal] = useState(null)
   const [teamFilter, setTeamFilter] = useState('Team')
+  const selectedUserIdRef = useRef('')
 
   const currentFYStart = getCurrentFYStart()
   const fyOptions = [
@@ -425,6 +453,10 @@ export default function AsmPerformanceDashboard() {
     () => users.find(user => user.id === selectedUserId) || null,
     [users, selectedUserId]
   )
+
+  useEffect(() => {
+    selectedUserIdRef.current = selectedUserId
+  }, [selectedUserId])
 
   const availableMonths = useMemo(() => {
     if (selectedQuarters.includes('All')) return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
@@ -484,32 +516,52 @@ export default function AsmPerformanceDashboard() {
       setUsersError(null)
 
       const { data } = await cachedFetch(
-        'perf_dashboard_assigned_users_asm',
+        usersCacheKey,
         async () => {
-          const [assignedRes, branchesRes] = await Promise.all([
+          const accessQueries = normalizedAccessTypeFilters.map(accessType => (
             supabase
               .from('user_performance_dashboard')
-              .select('users:user_id(id, full_name, email, employee_id, branch_id, department_id)')
-              .contains('access_type', ['ASM'])
-              .order('assigned_at', { ascending: false }),
+              .select('users:user_id(id, full_name, email, employee_id, branch_id, department_id, status, leaving_date), access_type, assigned_at')
+              .contains('access_type', [accessType])
+              .order('assigned_at', { ascending: false })
+          ))
+
+          const [branchesRes, ...accessResults] = await Promise.all([
             supabase
               .from('branches')
               .select('id, branch_name'),
+            ...accessQueries,
           ])
 
-          if (assignedRes.error) throw assignedRes.error
           if (branchesRes.error) throw branchesRes.error
+          const firstError = accessResults.find(result => result.error)
+          if (firstError?.error) throw firstError.error
 
           const branchMap = new Map((branchesRes.data || []).map(branch => [branch.id, branch.branch_name]))
 
-          const assignedUsers = (assignedRes.data || [])
-            .map(row => row.users ? {
-              ...row.users,
-              branch_name: branchMap.get(row.users.branch_id) || '',
-            } : null)
-            .filter(Boolean)
+          const userMap = new Map()
+          accessResults.forEach((result, index) => {
+            const accessType = normalizedAccessTypeFilters[index]
+            ;(result.data || []).forEach(row => {
+              const user = row?.users
+              if (!user?.id) return
 
-          return Array.from(new Map(assignedUsers.map(user => [user.id, user])).values())
+              const existing = userMap.get(user.id) || {
+                ...user,
+                branch_name: branchMap.get(user.branch_id) || '',
+                status: user.status,
+                leaving_date: user.leaving_date,
+              }
+
+              existing.branch_name = branchMap.get(user.branch_id) || existing.branch_name || ''
+              existing.status = user.status || existing.status || ''
+              existing.leaving_date = user.leaving_date || existing.leaving_date || null
+              existing.access_types = [...new Set([...(existing.access_types || []), accessType])]
+              userMap.set(user.id, existing)
+            })
+          })
+
+          return [...userMap.values()]
             .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')))
         },
         TTL.SHORT
@@ -519,8 +571,9 @@ export default function AsmPerformanceDashboard() {
 
       setUsers(Array.isArray(data) ? data : [])
       if (Array.isArray(data) && data.length > 0) {
-        const selectedStillExists = data.some(user => user.id === selectedUserId)
-        if (!selectedUserId || !selectedStillExists) setSelectedUserId(data[0].id)
+        const currentSelectedUserId = selectedUserIdRef.current
+        const selectedStillExists = data.some(user => user.id === currentSelectedUserId)
+        if (!currentSelectedUserId || !selectedStillExists) setSelectedUserId(data[0].id)
       } else {
         setSelectedUserId('')
       }
@@ -529,7 +582,7 @@ export default function AsmPerformanceDashboard() {
     } finally {
       if (mountedRef.current) setUsersLoading(false)
     }
-  }, [selectedUserId])
+  }, [normalizedAccessTypeFilters, usersCacheKey])
 
   const computeAsmPerformance = useCallback(async (employeeId, pairs, fyStart, asmUser, exportMode = false, teamFilterMode = 'Team') => {
     const exactEmployeeId = String(employeeId || '').trim()
@@ -1651,13 +1704,14 @@ export default function AsmPerformanceDashboard() {
 
     const selectionLabel = buildSelectionLabel(selectedQuarters, selectedMonths)
     const fyLabel = `FY_${selectedFYStart}-${String(selectedFYStart + 1).slice(-2)}`
-    const safeName = String(selectedUser.full_name || selectedUser.employee_id || 'ASM').replace(/[^a-z0-9]+/gi, '_')
-    const fileName = `ASM_Performance_Report_${safeName}_${fyLabel}_${selectionLabel}.xlsx`
+    const safeName = String(selectedUser.full_name || selectedUser.employee_id || currentReportLabel).replace(/[^a-z0-9]+/gi, '_')
+    const fileName = `${currentReportLabel}_Performance_Report_${safeName}_${fyLabel}_${selectionLabel}.xlsx`
 
     const summaryRows = [{
-      ASM_Employee: selectedUser.employee_id || '',
-      ASM_Name: selectedUser.full_name || '',
-      ASM_Email: selectedUser.email || '',
+      [`${currentReportLabel}_Employee`]: selectedUser.employee_id || '',
+      [`${currentReportLabel}_Name`]: selectedUser.full_name || '',
+      [`${currentReportLabel}_Email`]: selectedUser.email || '',
+      Status: String(selectedUser.status || '').trim().toLowerCase() === 'active' ? 'Active' : (selectedUser.status ? 'Inactive' : 'Unknown'),
       DGO_Count: detailData.dgoTeam.length,
       Total_Goal_Points: detailData.totals.goalPoints,
       Total_Achieved_Points: detailData.totals.achievedPoints,
@@ -1704,6 +1758,8 @@ export default function AsmPerformanceDashboard() {
     const buildExportRow = (user, data) => ({
       Employee: user.employee_id || '',
       Employee_Name: user.full_name || '',
+      Status: String(user.status || '').trim().toLowerCase() === 'active' ? 'Active' : (user.status ? 'Inactive' : 'Unknown'),
+      Last_Working_Day: user.leaving_date ? new Date(user.leaving_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
       Branch_Name: user.branch_name || '',
       DGO_Count: data.dgoTeam.length,
       Achieved_Sheet: data.sheetData.approvedSummary || 0,
@@ -1836,9 +1892,9 @@ export default function AsmPerformanceDashboard() {
       }
 
       const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'ASM Performance Report')
-      XLSX.writeFile(workbook, `ASM_Performance_Report_All_${fyLabel}_${selectionLabel}.xlsx`)
-      console.log(`Successfully exported ${rows.length}/${exportUsers.length} ASM records`)
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), `${currentReportLabel} Performance Report`)
+      XLSX.writeFile(workbook, `${currentReportLabel}_Performance_Report_All_${fyLabel}_${selectionLabel}.xlsx`)
+      console.log(`Successfully exported ${rows.length}/${exportUsers.length} ${currentReportLabel} records`)
       
       if (failedUsers.length > 0) {
         console.warn(`Failed to fetch data for ${failedUsers.length} users: ${failedUsers.join(', ')}`)
@@ -1851,7 +1907,7 @@ export default function AsmPerformanceDashboard() {
       setAllUsersExporting(false)
       setAllUsersExportProgress({ done: 0, total: 0 })
     }
-  }, [allUsersExporting, computeAsmPerformance, filteredUsers, monthYearPairs, selectedFYStart, selectedMonths, selectedQuarters])
+  }, [allUsersExporting, computeAsmPerformance, filteredUsers, monthYearPairs, selectedFYStart, selectedMonths, selectedQuarters, currentReportLabel])
 
   useEffect(() => {
     mountedRef.current = true
@@ -1916,8 +1972,8 @@ export default function AsmPerformanceDashboard() {
     <main className="apdr-main asmpr-main">
       <section className="apdr-header">
         <div>
-          <h2>DURO Lakshya Dashboard ASM</h2>
-          <p>ASM-level dashboard for users assigned with ASM access in Assign Performance Dashboard</p>
+          <h2>{pageTitle}</h2>
+          <p>{pageSubtitle}</p>
         </div>
         <button className="apdr-btn apdr-btn-secondary" onClick={loadUsers} disabled={usersLoading}>
           <i className={`fa-solid fa-rotate-right ${usersLoading ? 'fa-spin' : ''}`}></i>
@@ -1991,7 +2047,7 @@ export default function AsmPerformanceDashboard() {
             <i className={`fa-solid ${allUsersExporting ? 'fa-spinner fa-spin' : 'fa-file-arrow-down'}`}></i>
             {allUsersExporting
               ? `Downloading (${allUsersExportProgress.done}/${allUsersExportProgress.total})`
-              : 'Download All ASM'}
+              : `Download All ${bulkReportLabel}`}
           </button>
         </div>
       </section>
@@ -1999,7 +2055,7 @@ export default function AsmPerformanceDashboard() {
       <div className="apdr-layout">
         <section className="apdr-card apdr-list-card">
           <div className="apdr-list-header">
-            <h3>Assigned ASM Users</h3>
+            <h3>{userListTitle}</h3>
             <span>{filteredUsers.length}</span>
           </div>
 
@@ -2017,17 +2073,26 @@ export default function AsmPerformanceDashboard() {
           ) : usersError ? (
             <div className="apdr-error">{usersError}</div>
           ) : filteredUsers.length === 0 ? (
-            <div className="apdr-empty">No ASM users assigned in Assign Performance Dashboard.</div>
+            <div className="apdr-empty">{userListEmpty}</div>
           ) : (
             <div className="apdr-user-list">
               {filteredUsers.map(user => (
                 <button
                   key={user.id}
-                  className={`apdr-user-row ${selectedUserId === user.id ? 'selected' : ''}`}
+                  className={`apdr-user-row ${selectedUserId === user.id ? 'selected' : ''} ${String(user.status || '').trim().toLowerCase() !== 'active' ? 'inactive-user' : ''}`}
                   onClick={() => setSelectedUserId(user.id)}
                 >
-                  <div className="apdr-user-name">{user.full_name || 'Unknown User'}</div>
+                  <div className="apdr-user-name">
+                    {user.full_name || 'Unknown User'}
+                    {String(user.status || '').trim().toLowerCase() !== 'active' && <span className="apdr-inactive-badge">Inactive</span>}
+                  </div>
                   <div className="apdr-user-sub">{user.employee_id || '-'} | {user.email || '-'}</div>
+                  {String(user.status || '').trim().toLowerCase() !== 'active' && user.leaving_date && (
+                    <div className="apdr-user-leaving">
+                      <i className="fa-solid fa-calendar-xmark"></i>
+                      Last Working Day: {new Date(user.leaving_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </div>
+                  )}
                   <div className="asmpr-user-branch">{user.branch_name || 'No branch assigned'}</div>
                 </button>
               ))}
@@ -2037,13 +2102,13 @@ export default function AsmPerformanceDashboard() {
 
         <section className="apdr-card apdr-detail-card">
           {!selectedUser ? (
-            <div className="apdr-empty">Select an ASM to view DURO Lakshya dashboard details.</div>
+            <div className="apdr-empty">{emptySelectionMessage}</div>
           ) : detailLoading ? (
-            <div className="apdr-loading"><i className="fa-solid fa-spinner fa-spin"></i><span>Loading ASM performance...</span></div>
+            <div className="apdr-loading"><i className="fa-solid fa-spinner fa-spin"></i><span>{loadingMessage}</span></div>
           ) : detailError ? (
             <div className="apdr-error">{detailError}</div>
           ) : !detailData ? (
-            <div className="apdr-empty">No data available for this ASM.</div>
+            <div className="apdr-empty">{emptyDetailMessage}</div>
           ) : (
             <>
               <div className="apdr-detail-header">

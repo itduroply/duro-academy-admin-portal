@@ -353,6 +353,44 @@
   text-overflow: ellipsis;
 }
 
+.ap-perm-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-right: 0.25rem;
+}
+
+.ap-action-chip {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid #D1D5DB;
+  background: #F9FAFB;
+  color: #6B7280;
+  font-size: 0.67rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.ap-action-chip.enabled {
+  background: #EEF2FF;
+  border-color: #C7D2FE;
+  color: #4338CA;
+}
+
+.ap-action-chip.disabled {
+  opacity: 0.8;
+}
+
+.ap-action-chip:hover {
+  transform: translateY(-1px);
+}
+
 /* Toggle Switch */
 .ap-toggle {
   width: 36px;
