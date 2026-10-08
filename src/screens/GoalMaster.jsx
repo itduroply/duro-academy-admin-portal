@@ -325,7 +325,7 @@ function GoalMaster() {
     } catch (err) {
       console.error('Error adding goal record:', err)
       if (String(err?.message || '').toLowerCase().includes('duplicate')) {
-        setFormError('Could not save due to duplicate-key restriction. Please run the latest goals_master migration and try again.')
+        setFormError('Could not save because this environment still has legacy UNIQUE(employee_code) on goals_master. Run the latest goals_master history migration and try again.')
       } else {
         setFormError(err.message || 'Failed to add record.')
       }
@@ -499,7 +499,14 @@ function GoalMaster() {
       })
     } catch (err) {
       console.error('Goal report upload failed:', err)
-      setUploadMessage({ type: 'error', text: err.message || 'Failed to upload report.' })
+      if (String(err?.message || '').toLowerCase().includes('duplicate')) {
+        setUploadMessage({
+          type: 'error',
+          text: 'Upload failed because this environment still has legacy UNIQUE(employee_code) on goals_master. Run the latest goals_master history migration and retry.',
+        })
+      } else {
+        setUploadMessage({ type: 'error', text: err.message || 'Failed to upload report.' })
+      }
     } finally {
       setUploading(false)
       event.target.value = ''

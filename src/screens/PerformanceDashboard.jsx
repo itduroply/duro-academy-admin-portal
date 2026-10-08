@@ -594,7 +594,7 @@ export default function PerformanceDashboard() {
       filteredStatusDateClaims.map(c => normalizeAccount(c.account_number)).filter(Boolean)
     )]
 
-    // SGT enrollment → activeSgtAccounts (needed later for visit filtering)
+    // SGT enrollment snapshot foundation
     const isActiveTrue = (value) => {
       const normalized = String(value ?? '').trim().toLowerCase()
       return ['true', 't', '1', 'yes', 'y'].includes(normalized)
@@ -636,7 +636,6 @@ export default function PerformanceDashboard() {
       if (!isrAliasesLower.some(alias => isr.startsWith(alias))) return
       uniqueTierByAccount[account] = r.tier
     })
-    const activeSgtAccounts = new Set(Object.keys(uniqueTierByAccount))
 
     // Lead tasks → ids needed for dedup meta fetch
     const filteredLeadTasks = leadTaskRows.filter(v => pairMatch(v.task_created_on))
@@ -1067,22 +1066,56 @@ export default function PerformanceDashboard() {
       tierBreakdown,
     }
 
-    // S/G/T Coverage
-    let monthlyVisitGoal = 0
+    // S/G/T Coverage goal must be calculated month-wise, then summed for selected months.
+    // Using a single "current snapshot * month count" causes incorrect quarter totals.
     const tierMonthlyGoalMap = { Silver: 0, Gold: 0, Titanium: 0 }
-    Object.values(uniqueTierByAccount).forEach(tier => {
-      if (tier === 'Silver') {
-        monthlyVisitGoal += 1
-        tierMonthlyGoalMap.Silver += 1
-      } else if (tier === 'Gold' || tier === 'Titanium') {
-        monthlyVisitGoal += 2
-        tierMonthlyGoalMap[tier] += 2
-      }
+    const enrollmentRowsByAccount = {}
+    verifyEnrollmentsSGT.forEach(row => {
+      const account = String(row?.account_no || '').trim()
+      if (!account) return
+      if (!enrollmentRowsByAccount[account]) enrollmentRowsByAccount[account] = []
+      enrollmentRowsByAccount[account].push(row)
     })
-    const sgtGoal = monthlyVisitGoal * sortedPairs.length
+
+    Object.values(enrollmentRowsByAccount).forEach(rowsForAccount => {
+      rowsForAccount.sort((a, b) => {
+        const ta = parseDateSafe(a?.created_at)?.getTime() || 0
+        const tb = parseDateSafe(b?.created_at)?.getTime() || 0
+        return tb - ta
+      })
+    })
+
+    sortedPairs.forEach(pair => {
+      const monthEndExclusive = new Date(pair.year, pair.month, 1)
+
+      Object.values(enrollmentRowsByAccount).forEach(rowsForAccount => {
+        const latestAsOfMonth = rowsForAccount.find(row => {
+          const createdAt = parseDateSafe(row?.created_at)
+          return createdAt && createdAt < monthEndExclusive
+        })
+
+        if (!latestAsOfMonth) return
+        if (!isActiveTrue(latestAsOfMonth.is_active)) return
+
+        const mappedIsr = String(latestAsOfMonth.mapped_isr || '').trim().toLowerCase()
+        const belongsToSelectedEmployee = isrAliasesLower.some(alias => mappedIsr.startsWith(alias))
+        if (!belongsToSelectedEmployee) return
+
+        const tier = String(latestAsOfMonth.tier || '').trim()
+        if (tier === 'Silver') {
+          tierMonthlyGoalMap.Silver += 1
+        } else if (tier === 'Gold') {
+          tierMonthlyGoalMap.Gold += 2
+        } else if (tier === 'Titanium') {
+          tierMonthlyGoalMap.Titanium += 2
+        }
+      })
+    })
+
+    const sgtGoal = tierMonthlyGoalMap.Silver + tierMonthlyGoalMap.Gold + tierMonthlyGoalMap.Titanium
     const uniqueDayVisitMap = new Map()
     sgtVisits
-      .filter(v => pairMatch(v.visit_date) && activeSgtAccounts.has(String(v.influencer_code || '').trim()))
+      .filter(v => pairMatch(v.visit_date))
       .forEach(v => {
         if (!v.influencer_code || !v.visit_date) return
         const d = parseDateSafe(v.visit_date)
@@ -1094,8 +1127,29 @@ export default function PerformanceDashboard() {
     Array.from(uniqueDayVisitMap.values()).forEach(v => {
       const d = parseDateSafe(v.visit_date)
       if (!d) return
-      const mk = `${v.influencer_code}_${d.getMonth() + 1}_${d.getFullYear()}`
-      if (!monthlyVisitCounts[mk]) monthlyVisitCounts[mk] = { count: 0, tier: v.influencer_tier }
+      const account = String(v.influencer_code || '').trim()
+      if (!account) return
+
+      const rowsForAccount = enrollmentRowsByAccount[account] || []
+      if (rowsForAccount.length === 0) return
+
+      const monthEndExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1)
+      const latestAsOfMonth = rowsForAccount.find(row => {
+        const createdAt = parseDateSafe(row?.created_at)
+        return createdAt && createdAt < monthEndExclusive
+      })
+      if (!latestAsOfMonth) return
+      if (!isActiveTrue(latestAsOfMonth.is_active)) return
+
+      const mappedIsr = String(latestAsOfMonth.mapped_isr || '').trim().toLowerCase()
+      const belongsToSelectedEmployee = isrAliasesLower.some(alias => mappedIsr.startsWith(alias))
+      if (!belongsToSelectedEmployee) return
+
+      const tier = String(latestAsOfMonth.tier || '').trim()
+      if (!['Silver', 'Gold', 'Titanium'].includes(tier)) return
+
+      const mk = `${account}_${d.getMonth() + 1}_${d.getFullYear()}`
+      if (!monthlyVisitCounts[mk]) monthlyVisitCounts[mk] = { count: 0, tier }
       monthlyVisitCounts[mk].count += 1
     })
     let sgtAchieved = 0
@@ -1112,7 +1166,7 @@ export default function PerformanceDashboard() {
       sgtTierBreakdown: ['Silver', 'Gold', 'Titanium'].map(tier => ({
         tier,
         achievedVisits: tierAchievedMap[tier] || 0,
-        goalVisits: (tierMonthlyGoalMap[tier] || 0) * sortedPairs.length,
+        goalVisits: tierMonthlyGoalMap[tier] || 0,
       })),
     }
 

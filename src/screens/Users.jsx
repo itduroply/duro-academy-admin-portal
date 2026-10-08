@@ -9,14 +9,18 @@ import './Users.css'
 
 function Users() {
   const { showNotification } = useNotification()
-  const { hasActionAccess } = useAuth()
+  const { hasActionAccess, user: authUser } = useAuth()
   const mountedRef = useRef(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addUserModalOpen, setAddUserModalOpen] = useState(false)
   const [editUserModalOpen, setEditUserModalOpen] = useState(false)
   const [editingUserId, setEditingUserId] = useState(null)
+  const [editingUserSnapshot, setEditingUserSnapshot] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
+  const [selectedUserHistory, setSelectedUserHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
   const [roleFilter, setRoleFilter] = useState('All Roles')
   const [departmentFilter, setDepartmentFilter] = useState('All Departments')
   const [searchQuery, setSearchQuery] = useState('')
@@ -423,13 +427,120 @@ function Users() {
 
     setSelectedUser(user)
     setDrawerOpen(true)
+    fetchUserHistory(user.id)
     // Initialize charts after drawer opens
     setTimeout(() => initializeCharts(user.progress), 100)
   }
 
   const closeDrawer = () => {
     setDrawerOpen(false)
+    setSelectedUserHistory([])
+    setHistoryError('')
     setTimeout(() => setSelectedUser(null), 300)
+  }
+
+  const formatHistoryValue = (value) => {
+    if (value === null || value === undefined) return 'Empty'
+    const normalized = String(value).trim()
+    return normalized === '' ? 'Empty' : normalized
+  }
+
+  const formatFieldLabel = (fieldName) => {
+    return String(fieldName || '')
+      .split('_')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ')
+  }
+
+  const toComparableValue = (value) => {
+    if (value === null || value === undefined) return ''
+    return String(value).trim()
+  }
+
+  const fetchUserHistory = async (userId) => {
+    if (!userId) {
+      setSelectedUserHistory([])
+      return
+    }
+
+    try {
+      setHistoryLoading(true)
+      setHistoryError('')
+
+      const { data, error } = await supabase
+        .from('user_update_history')
+        .select('id, user_id, changed_by, field_name, old_value, new_value, change_type, changed_at')
+        .eq('user_id', userId)
+        .order('changed_at', { ascending: false })
+        .limit(100)
+
+      if (error) {
+        throw error
+      }
+
+      const historyRows = data || []
+      const actorIds = [...new Set(historyRows.map((row) => row.changed_by).filter(Boolean))]
+      let actorMap = new Map()
+
+      if (actorIds.length > 0) {
+        const { data: actorRows, error: actorError } = await supabase
+          .from('users')
+          .select('id, full_name, email')
+          .in('id', actorIds)
+
+        if (!actorError && actorRows) {
+          actorMap = new Map(actorRows.map((actor) => [actor.id, actor]))
+        }
+      }
+
+      const normalizedHistory = historyRows.map((row) => {
+        const actor = row.changed_by ? actorMap.get(row.changed_by) : null
+        return {
+          ...row,
+          changed_by_name: actor?.full_name || 'System',
+          changed_by_email: actor?.email || '',
+        }
+      })
+
+      if (mountedRef.current) {
+        setSelectedUserHistory(normalizedHistory)
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setSelectedUserHistory([])
+        setHistoryError(error.message || 'Failed to load user history')
+      }
+    } finally {
+      if (mountedRef.current) {
+        setHistoryLoading(false)
+      }
+    }
+  }
+
+  const logUserHistoryChanges = async (targetUserId, changes) => {
+    if (!targetUserId || !Array.isArray(changes) || changes.length === 0) return
+
+    try {
+      const rows = changes.map((change) => ({
+        user_id: targetUserId,
+        changed_by: authUser?.id || null,
+        field_name: change.field_name,
+        old_value: change.old_value,
+        new_value: change.new_value,
+        change_type: change.change_type || 'update'
+      }))
+
+      const { error } = await supabase
+        .from('user_update_history')
+        .insert(rows)
+
+      if (error) {
+        console.error('Failed to write user history:', error)
+      }
+    } catch (error) {
+      console.error('Failed to write user history:', error)
+    }
   }
 
   const normalizeEmploymentStatus = (value) => {
@@ -482,6 +593,7 @@ function Users() {
         grade_id: data.grade_id || '',
         designation_id: data.designation_id || ''
       })
+      setEditingUserSnapshot(data)
 
       const selectedManager = users.find(u => u.employeeId === data.reporting_manager)
       setManagerSearchQuery(selectedManager ? selectedManager.name : '')
@@ -638,7 +750,51 @@ function Users() {
         return
       }
 
-      // Prepare update data (exclude password and email as they're handled separately)
+      const normalizedEmail = formData.email.trim().toLowerCase()
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(normalizedEmail)) {
+        showNotification('Please enter a valid email address', 'warning')
+        setLoading(false)
+        return
+      }
+
+      const currentUser = users.find(user => user.id === editingUserId)
+      const currentEmail = String(currentUser?.email || '').trim().toLowerCase()
+      const emailChanged = Boolean(normalizedEmail) && normalizedEmail !== currentEmail
+      const historyChanges = []
+
+      const previousUser = editingUserSnapshot || {}
+      const pushHistoryChange = (fieldName, oldValue, newValue, changeType = 'update') => {
+        const normalizedOld = toComparableValue(oldValue)
+        const normalizedNew = toComparableValue(newValue)
+        if (normalizedOld === normalizedNew) return
+
+        historyChanges.push({
+          field_name: fieldName,
+          old_value: normalizedOld || null,
+          new_value: normalizedNew || null,
+          change_type: changeType,
+        })
+      }
+
+      pushHistoryChange('full_name', previousUser.full_name, formData.full_name)
+      pushHistoryChange('role', previousUser.role, formData.role)
+      pushHistoryChange('employee_id', previousUser.employee_id, formData.employee_id)
+      pushHistoryChange('reporting_manager', previousUser.reporting_manager, formData.reporting_manager || null)
+      pushHistoryChange('phone', previousUser.phone, formData.phone || null)
+      pushHistoryChange('date_of_birth', previousUser.date_of_birth, formData.date_of_birth || null)
+      pushHistoryChange('date_of_joining', previousUser.date_of_joining, formData.date_of_joining || null)
+      pushHistoryChange('leaving_date', previousUser.leaving_date, formData.leaving_date || null)
+      pushHistoryChange('status', normalizeEmploymentStatus(previousUser.status), normalizeEmploymentStatus(formData.status))
+      pushHistoryChange('region_id', previousUser.region_id, formData.region_id ? parseInt(formData.region_id) : null)
+      pushHistoryChange('branch_id', previousUser.branch_id, formData.branch_id ? parseInt(formData.branch_id) : null)
+      pushHistoryChange('sub_branch_id', previousUser.sub_branch_id, formData.sub_branch_id ? parseInt(formData.sub_branch_id) : null)
+      pushHistoryChange('department_id', previousUser.department_id, formData.department_id ? parseInt(formData.department_id) : null)
+      pushHistoryChange('sub_department_id', previousUser.sub_department_id, formData.sub_department_id ? parseInt(formData.sub_department_id) : null)
+      pushHistoryChange('grade_id', previousUser.grade_id, formData.grade_id ? parseInt(formData.grade_id) : null)
+      pushHistoryChange('designation_id', previousUser.designation_id, formData.designation_id ? parseInt(formData.designation_id) : null)
+
+      // Prepare update data (exclude password and email as they are handled separately)
       const updateData = {
         full_name: formData.full_name,
         role: formData.role,
@@ -668,30 +824,71 @@ function Users() {
         throw new Error(`Failed to update user: ${error.message}`)
       }
 
+      // Update email in both auth.users and public.users while preserving auth id
+      if (emailChanged) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) {
+          throw new Error('Your session has expired. Please login again and retry.')
+        }
+
+        const { data: emailResult, error: emailFnError } = await supabase.functions.invoke('update-user-email', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`
+          },
+          body: {
+            userId: editingUserId,
+            email: normalizedEmail
+          }
+        })
+
+        if (emailFnError) {
+          throw new Error(`Failed to update email: ${emailFnError.message}`)
+        }
+
+        if (!emailResult?.success) {
+          throw new Error(`Failed to update email: ${emailResult?.error || 'Unknown error'}`)
+        }
+
+        pushHistoryChange('email', currentEmail, normalizedEmail, 'email_change')
+      }
+
       // Update password if requested
       if (updatePassword && formData.password) {
         const { data: { session } } = await supabase.auth.getSession()
-        
-        const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user-password`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session?.access_token}`
-            },
-            body: JSON.stringify({
-              userId: editingUserId,
-              password: formData.password
-            })
-          }
-        )
-
-        const result = await response.json()
-
-        if (!response.ok) {
-          throw new Error(`Failed to update password: ${result.error}`)
+        if (!session?.access_token) {
+          throw new Error('Your session has expired. Please login again and retry.')
         }
+
+        const { data: passwordResult, error: passwordFnError } = await supabase.functions.invoke('update-user-password', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`
+          },
+          body: {
+            userId: editingUserId,
+            password: formData.password
+          }
+        })
+
+        if (passwordFnError) {
+          throw new Error(`Failed to update password: ${passwordFnError.message}`)
+        }
+
+        if (!passwordResult?.success) {
+          throw new Error(`Failed to update password: ${passwordResult?.error || 'Unknown error'}`)
+        }
+
+        historyChanges.push({
+          field_name: 'password',
+          old_value: null,
+          new_value: 'UPDATED',
+          change_type: 'password_reset'
+        })
+      }
+
+      await logUserHistoryChanges(editingUserId, historyChanges)
+
+      if (selectedUser?.id === editingUserId) {
+        fetchUserHistory(editingUserId)
       }
 
       showNotification('User updated successfully!', 'success')
@@ -723,6 +920,7 @@ function Users() {
       setManagerSearchQuery('')
       setManagerDropdownOpen(false)
       setEditingUserId(null)
+      setEditingUserSnapshot(null)
       setEditUserModalOpen(false)
       setUpdatePassword(false)
       
@@ -813,6 +1011,17 @@ function Users() {
 
         showNotification('Failed to update status: ' + error.message, 'error')
         return
+      }
+
+      await logUserHistoryChanges(user.id, [{
+        field_name: 'status',
+        old_value: user.status,
+        new_value: newStatus === 'inactive' ? 'Inactive' : 'Active',
+        change_type: 'status_toggle'
+      }])
+
+      if (selectedUser?.id === user.id) {
+        fetchUserHistory(user.id)
       }
 
       cacheDelete('users_screen_data').catch(() => {})
@@ -1335,6 +1544,30 @@ function Users() {
                   ))}
                 </ul>
               </div>
+
+              <div className="history-card">
+                <h4>User Update History</h4>
+                {historyLoading ? (
+                  <p className="history-empty">Loading history...</p>
+                ) : historyError ? (
+                  <p className="history-error">{historyError}</p>
+                ) : selectedUserHistory.length === 0 ? (
+                  <p className="history-empty">No update history found for this user.</p>
+                ) : (
+                  <ul className="history-list">
+                    {selectedUserHistory.map((entry) => (
+                      <li key={entry.id} className="history-item">
+                        <div className="history-main">
+                          <strong>{formatFieldLabel(entry.field_name)}</strong> changed from <strong>{formatHistoryValue(entry.old_value)}</strong> to <strong>{formatHistoryValue(entry.new_value)}</strong>
+                        </div>
+                        <div className="history-meta">
+                          By {entry.changed_by_name}{entry.changed_by_email ? ` (${entry.changed_by_email})` : ''} on {new Date(entry.changed_at).toLocaleString()}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
 
             <div className="drawer-footer">
@@ -1707,11 +1940,11 @@ function Users() {
 
       {/* Edit User Modal */}
       {editUserModalOpen && (
-        <div className="modal-backdrop" onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setUpdatePassword(false); }}>
+        <div className="modal-backdrop" onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setEditingUserSnapshot(null); setUpdatePassword(false); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Edit User</h3>
-              <button onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setUpdatePassword(false); }}>
+              <button onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setEditingUserSnapshot(null); setUpdatePassword(false); }}>
                 <i className="fa-solid fa-times"></i>
               </button>
             </div>
@@ -1802,10 +2035,8 @@ function Users() {
                   value={formData.email}
                   onChange={handleInputChange}
                   placeholder="name@company.com" 
-                  disabled
-                  style={{ backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
+                  required
                 />
-                <small style={{ color: '#6B7280', fontSize: '0.875rem' }}>Email cannot be changed</small>
               </div>
               <div className="form-group">
                 <label htmlFor="edit_phone">Phone</label>
@@ -2040,7 +2271,7 @@ function Users() {
                 <button 
                   type="button" 
                   className="btn btn-secondary" 
-                  onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setUpdatePassword(false); }}
+                  onClick={() => { setEditUserModalOpen(false); setEditingUserId(null); setEditingUserSnapshot(null); setUpdatePassword(false); }}
                   disabled={loading}
                 >
                   Cancel

@@ -1,0 +1,121 @@
+.sales-delete-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+.sales-delete-header h2 {
+  font-size: 2rem;
+  margin: 0;
+  color: #111827;
+}
+
+.sales-delete-header p {
+  margin-top: 0.4rem;
+  color: #6b7280;
+}
+
+.sales-delete-card {
+  margin-top: 1.5rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.9rem;
+  padding: 1.5rem;
+}
+
+.sales-delete-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1rem 0;
+  color: #1f2937;
+}
+
+.sales-delete-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.sales-delete-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sales-delete-field label {
+  font-size: 0.9rem;
+  color: #374151;
+  font-weight: 600;
+}
+
+.sales-delete-field input {
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.95rem;
+}
+
+.sales-delete-field input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+.sales-delete-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.2rem;
+  flex-wrap: wrap;
+}
+
+.sales-delete-actions button {
+  border: none;
+  border-radius: 0.55rem;
+  padding: 0.65rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.btn-check {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.btn-delete {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.btn-delete-all {
+  background: #b91c1c;
+  color: #ffffff;
+}
+
+.sales-delete-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sales-delete-info {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  color: #6b7280;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 768px) {
+  .sales-delete-main {
+    padding: 1rem;
+  }
+
+  .sales-delete-grid {
+    grid-template-columns: 1fr;
+  }
+}

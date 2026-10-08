@@ -37,6 +37,7 @@ const AsmPerformanceDashboard = lazy(() => import('./screens/AsmPerformanceDashb
 const PerformanceBranchAccess = lazy(() => import('./screens/PerformanceBranchAccess'))
 const ExcelUpload = lazy(() => import('./screens/ExcelUpload'))
 const SalesDataDownload = lazy(() => import('./screens/SalesDataDownload'))
+const SalesDataDelete = lazy(() => import('./screens/SalesDataDelete'))
 const PerformanceMasterUpload = lazy(() => import('./screens/PerformanceMasterUpload'))
 const GoalMaster = lazy(() => import('./screens/GoalMaster'))
 const CombinedPerformanceDashboard = lazy(() => import('./screens/CombinedPerformanceDashboard'))
@@ -121,6 +122,7 @@ function App() {
             <Route path="/performance-branch-access" element={<Screen screen={SCREENS.PERFORMANCE_BRANCH_ACCESS}><PerformanceBranchAccess /></Screen>} />
             <Route path="/excel-upload" element={<Screen screen={SCREENS.EXCEL_UPLOAD}><ExcelUpload /></Screen>} />
             <Route path="/sales-data-download" element={<Screen screen={SCREENS.SALES_DATA_DOWNLOAD}><SalesDataDownload /></Screen>} />
+            <Route path="/sales-data-delete" element={<Screen screen={SCREENS.SALES_DATA_DELETE}><SalesDataDelete /></Screen>} />
             <Route path="/performance-master" element={<Screen screen={SCREENS.PERFORMANCE_MASTER}><PerformanceMasterUpload /></Screen>} />
             <Route path="/goal-master" element={<Screen screen={SCREENS.GOAL_MASTER}><GoalMaster /></Screen>} />
             <Route path="/influencer-claim" element={<Screen screen={SCREENS.INFLUENCER_CLAIM}><InfluencerClaimScreen /></Screen>} />

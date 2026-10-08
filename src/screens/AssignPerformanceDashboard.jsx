@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { cachedFetch, cacheDelete, TTL } from '../utils/cacheDB'
 import { useNotification } from '../contexts/NotificationContext'
+import * as XLSX from 'xlsx'
 import './AssignPerformanceDashboard.css'
 
 function AssignPerformanceDashboard() {
@@ -11,6 +12,10 @@ function AssignPerformanceDashboard() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [bulkUploadModalOpen, setBulkUploadModalOpen] = useState(false)
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const [bulkUploadResults, setBulkUploadResults] = useState(null)
   const [error, setError] = useState(null)
 
   const [users, setUsers] = useState([])
@@ -95,6 +100,36 @@ function AssignPerformanceDashboard() {
     setUserSearchTerm('')
   }
 
+  const normalizeAccessTypes = (value) => {
+    let rawValues = []
+
+    if (Array.isArray(value)) {
+      rawValues = value
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) return []
+
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        rawValues = trimmed.slice(1, -1).split(',')
+      } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed)
+          rawValues = Array.isArray(parsed) ? parsed : []
+        } catch {
+          rawValues = trimmed.split(/[;,|]/)
+        }
+      } else {
+        rawValues = trimmed.split(/[;,|]/)
+      }
+    }
+
+    const cleaned = rawValues
+      .map((item) => String(item || '').replace(/^"|"$/g, '').trim())
+      .filter((item) => ACCESS_TYPE_OPTIONS.includes(item))
+
+    return [...new Set(cleaned)]
+  }
+
   const openAssignModal = () => {
     resetModal()
     setModalOpen(true)
@@ -106,7 +141,7 @@ function AssignPerformanceDashboard() {
     setSelectedUser(assignment?.user_id || '')
     setSelectedUsers([])
     setSelectedDepartment('')
-    setSelectedAccessTypes(Array.isArray(assignment?.access_type) ? assignment.access_type : [])
+    setSelectedAccessTypes(normalizeAccessTypes(assignment?.access_type))
     setUserSearchTerm('')
     setModalOpen(true)
   }
@@ -127,7 +162,14 @@ function AssignPerformanceDashboard() {
     if (assignType === 'single' && !selectedUser) return showNotification('Please select a user', 'warning')
     if (assignType === 'multiple' && selectedUsers.length === 0) return showNotification('Please select at least one user', 'warning')
     if (assignType === 'department' && !selectedDepartment) return showNotification('Please select a department', 'warning')
-    if (selectedAccessTypes.length === 0) return showNotification('Please select at least one access type', 'warning')
+
+    const normalizedAccessTypes = [...new Set(
+      selectedAccessTypes
+        .map((item) => String(item || '').trim())
+        .filter((item) => ACCESS_TYPE_OPTIONS.includes(item))
+    )]
+
+    if (normalizedAccessTypes.length === 0) return showNotification('Please select at least one valid access type', 'warning')
 
     try {
       setSaving(true)
@@ -153,7 +195,7 @@ function AssignPerformanceDashboard() {
 
       if (editingUserId) {
         // Edit mode: just ensure the record exists (upsert is safe; no extra fields)
-        const rows = targetUserIds.map(uid => ({ user_id: uid, access_type: selectedAccessTypes }))
+        const rows = targetUserIds.map(uid => ({ user_id: uid, access_type: normalizedAccessTypes }))
         const { error } = await supabase
           .from('user_performance_dashboard')
           .upsert(rows, { onConflict: 'user_id' })
@@ -162,7 +204,7 @@ function AssignPerformanceDashboard() {
       } else {
         const rows = targetUserIds.map(uid => ({
           user_id: uid,
-          access_type: selectedAccessTypes,
+          access_type: normalizedAccessTypes,
           assigned_at: new Date().toISOString(),
         }))
         const { error } = await supabase
@@ -255,6 +297,195 @@ function AssignPerformanceDashboard() {
     return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
   }
 
+  const downloadAllUsersReport = () => {
+    if (!users.length) {
+      showNotification('No users found to export', 'warning')
+      return
+    }
+
+    try {
+      setExporting(true)
+
+      const assignmentByUserId = new Map(
+        assignments.map((assignment) => [assignment.user_id, assignment])
+      )
+      const departmentById = new Map(departments.map((dept) => [dept.id, dept.department_name]))
+
+      const rows = users.map((user, index) => {
+        const assignment = assignmentByUserId.get(user.id)
+        const accessType = Array.isArray(assignment?.access_type) && assignment.access_type.length
+          ? assignment.access_type.join(', ')
+          : ''
+
+        return {
+          'S.No': index + 1,
+          'Full Name': user.full_name || '',
+          'Email': user.email || '',
+          'Employee ID': user.employee_id || '',
+          'Department': departmentById.get(user.department_id) || '',
+          'Assigned': assignment ? 'Yes' : 'No',
+          'Access Type': accessType,
+          'Assigned On': assignment?.assigned_at ? formatDate(assignment.assigned_at) : ''
+        }
+      })
+
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      worksheet['!cols'] = [
+        { wch: 8 },
+        { wch: 28 },
+        { wch: 34 },
+        { wch: 16 },
+        { wch: 24 },
+        { wch: 10 },
+        { wch: 28 },
+        { wch: 16 }
+      ]
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'DURO Dashboard Users')
+      XLSX.writeFile(workbook, `duro_lakshya_dashboard_users_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (err) {
+      showNotification('Failed to export report: ' + (err?.message || 'Unknown error'), 'error')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const downloadBulkUploadTemplate = () => {
+    const templateRows = [
+      {
+        'Employee ID*': 'D02364',
+        'Email (optional)': 'user@example.com',
+        'Access Types* (comma separated)': 'DGO, Calculator'
+      }
+    ]
+
+    const worksheet = XLSX.utils.json_to_sheet(templateRows)
+    worksheet['!cols'] = [
+      { wch: 18 },
+      { wch: 34 },
+      { wch: 36 }
+    ]
+
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Template')
+    XLSX.writeFile(workbook, 'duro_dashboard_bulk_upload_template.xlsx')
+  }
+
+  const handleBulkUpload = async () => {
+    if (!uploadedFile) {
+      showNotification('Please choose an Excel file first', 'warning')
+      return
+    }
+
+    try {
+      setSaving(true)
+      setBulkUploadResults(null)
+
+      const buffer = await uploadedFile.arrayBuffer()
+      const workbook = XLSX.read(buffer)
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+      if (!rows.length) {
+        showNotification('Uploaded file is empty', 'warning')
+        return
+      }
+
+      const userByEmployeeId = new Map(users.map((u) => [String(u.employee_id || '').trim().toLowerCase(), u]))
+      const userByEmail = new Map(users.map((u) => [String(u.email || '').trim().toLowerCase(), u]))
+
+      const prepared = []
+      const skippedRows = []
+
+      rows.forEach((rawRow, idx) => {
+        const rowNumber = idx + 2
+        const employeeId = String(rawRow['Employee ID*'] || rawRow['Employee ID'] || '').trim()
+        const email = String(rawRow['Email (optional)'] || rawRow['Email'] || '').trim().toLowerCase()
+        const accessRaw = rawRow['Access Types* (comma separated)'] || rawRow['Access Types'] || rawRow['Access Type'] || ''
+        const accessTypes = normalizeAccessTypes(accessRaw)
+
+        if (!employeeId && !email) {
+          skippedRows.push(`Row ${rowNumber}: Employee ID or Email is required`)
+          return
+        }
+
+        if (!accessTypes.length) {
+          skippedRows.push(`Row ${rowNumber}: Valid Access Types are required`)
+          return
+        }
+
+        const matchedUser = employeeId
+          ? userByEmployeeId.get(employeeId.toLowerCase())
+          : userByEmail.get(email)
+
+        if (!matchedUser) {
+          skippedRows.push(`Row ${rowNumber}: User not found (${employeeId || email})`)
+          return
+        }
+
+        prepared.push({
+          user_id: matchedUser.id,
+          access_type: accessTypes,
+          assigned_at: new Date().toISOString(),
+        })
+      })
+
+      const uniqueByUser = new Map(prepared.map((row) => [row.user_id, row]))
+      const upsertRows = Array.from(uniqueByUser.values())
+
+      if (!upsertRows.length) {
+        setBulkUploadResults({
+          total: rows.length,
+          processed: 0,
+          inserted: 0,
+          updated: 0,
+          skipped: skippedRows.length,
+          skippedRows,
+        })
+        showNotification('No valid rows found to upload', 'warning')
+        return
+      }
+
+      const targetUserIds = upsertRows.map((row) => row.user_id)
+      const { data: existingRows, error: existingError } = await supabase
+        .from('user_performance_dashboard')
+        .select('user_id')
+        .in('user_id', targetUserIds)
+
+      if (existingError) throw existingError
+
+      const existingUserIds = new Set((existingRows || []).map((row) => row.user_id))
+      const updatedCount = upsertRows.filter((row) => existingUserIds.has(row.user_id)).length
+      const insertedCount = upsertRows.length - updatedCount
+
+      const { error: upsertError } = await supabase
+        .from('user_performance_dashboard')
+        .upsert(upsertRows, { onConflict: 'user_id' })
+
+      if (upsertError) throw upsertError
+
+      await fetchAssignments()
+      await cacheDelete('user_perf_dash')
+
+      setBulkUploadResults({
+        total: rows.length,
+        processed: upsertRows.length,
+        inserted: insertedCount,
+        updated: updatedCount,
+        skipped: skippedRows.length,
+        skippedRows,
+      })
+
+      showNotification(`Bulk upload completed. Inserted: ${insertedCount}, Updated: ${updatedCount}`, 'success')
+    } catch (err) {
+      console.error(err)
+      showNotification('Bulk upload failed: ' + err.message, 'error')
+    } finally {
+      if (mountedRef.current) setSaving(false)
+    }
+  }
+
   // ── KPI stats ─────────────────────────────────────────────────────────────
   const stats = useMemo(() => ({
     totalAssigned: assignments.length,
@@ -292,6 +523,26 @@ function AssignPerformanceDashboard() {
             <button className="btn btn-secondary" onClick={fetchAllData} disabled={loading || saving}>
               <i className={`fa-solid fa-rotate-right ${(loading || saving) ? 'fa-spin' : ''}`}></i>
               Refresh
+            </button>
+            <button className="btn btn-secondary" onClick={downloadBulkUploadTemplate} disabled={loading || saving}>
+              <i className="fa-solid fa-file-arrow-down"></i>
+              Download Template
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setUploadedFile(null)
+                setBulkUploadResults(null)
+                setBulkUploadModalOpen(true)
+              }}
+              disabled={loading || saving}
+            >
+              <i className="fa-solid fa-file-excel"></i>
+              Bulk Upload
+            </button>
+            <button className="btn btn-secondary" onClick={downloadAllUsersReport} disabled={loading || saving || exporting}>
+              <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
+              {exporting ? 'Exporting...' : 'Download Report'}
             </button>
             <button className="btn btn-primary" onClick={openAssignModal}>
               <i className="fa-solid fa-plus"></i>
@@ -648,6 +899,53 @@ function AssignPerformanceDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {bulkUploadModalOpen && (
+        <div className="apd-modal-backdrop" onClick={() => setBulkUploadModalOpen(false)}>
+          <div className="apd-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="apd-modal-header">
+              <h3>Bulk Upload Access Assignments</h3>
+              <button onClick={() => setBulkUploadModalOpen(false)}><i className="fa-solid fa-times"></i></button>
+            </div>
+            <div className="apd-modal-body">
+              <div className="apd-form-group">
+                <label>Upload Excel File *</label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => {
+                    setUploadedFile(e.target.files?.[0] || null)
+                    setBulkUploadResults(null)
+                  }}
+                  className="apd-search-input"
+                />
+              </div>
+
+              {bulkUploadResults && (
+                <div className="apd-info-note" style={{ marginTop: '0.5rem', display: 'block' }}>
+                  Total: {bulkUploadResults.total} | Processed: {bulkUploadResults.processed} | Inserted: {bulkUploadResults.inserted} | Updated: {bulkUploadResults.updated} | Skipped: {bulkUploadResults.skipped}
+                </div>
+              )}
+
+              {bulkUploadResults?.skippedRows?.length > 0 && (
+                <div style={{ marginTop: '0.75rem', maxHeight: '160px', overflowY: 'auto', border: '1px solid #E5E7EB', borderRadius: '0.5rem', padding: '0.75rem', fontSize: '0.8rem', color: '#6B7280' }}>
+                  {bulkUploadResults.skippedRows.map((item, index) => (
+                    <div key={index}>{item}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="apd-modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setBulkUploadModalOpen(false)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleBulkUpload} disabled={saving}>
+                {saving ? 'Uploading...' : 'Upload'}
+              </button>
+            </div>
           </div>
         </div>
       )}

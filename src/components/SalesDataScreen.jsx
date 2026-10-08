@@ -43,6 +43,7 @@ export function excelDate(v) {
 
 const BATCH_SIZE = 500
 const PAGE_SIZE = 1000
+const SALES_DUMP_PURGE_DAYS = 45
 
 /**
  * Reusable Sales Data Screen.
@@ -235,6 +236,21 @@ export default function SalesDataScreen({
         })
         setUploading(false)
         return
+      }
+
+      if (table === 'sales_dump') {
+        const cutoffDate = new Date()
+        cutoffDate.setDate(cutoffDate.getDate() - SALES_DUMP_PURGE_DAYS)
+        const cutoffIso = cutoffDate.toISOString().slice(0, 10)
+
+        const { error: deleteError } = await supabase
+          .from(table)
+          .delete()
+          .gte('posting_date', cutoffIso)
+
+        if (deleteError) {
+          throw new Error(`Failed to delete last ${SALES_DUMP_PURGE_DAYS} days data: ${deleteError.message}`)
+        }
       }
 
       const batches = Math.ceil(rowsToUpload.length / BATCH_SIZE)
