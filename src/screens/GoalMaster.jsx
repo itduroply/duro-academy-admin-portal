@@ -80,6 +80,50 @@ function todayDateString() {
   return `${y}-${m}-${d}`
 }
 
+function normalizeQuarter(value) {
+  const q = String(value || '').trim().toUpperCase()
+  if (['Q1', 'Q2', 'Q3', 'Q4'].includes(q)) return q
+  return ''
+}
+
+function getQuarterColumn(quarter) {
+  const normalized = normalizeQuarter(quarter)
+  if (normalized === 'Q1') return 'q1_monthly_goal'
+  if (normalized === 'Q2') return 'q2_monthly_goal'
+  if (normalized === 'Q3') return 'q3_monthly_goal'
+  if (normalized === 'Q4') return 'q4_monthly_goal'
+  return ''
+}
+
+function ensureFourQuarterRows(row, selectedEmployeeRow) {
+  const quarterOrder = ['Q1', 'Q2', 'Q3', 'Q4']
+  const base = row || {}
+
+  return quarterOrder.map((quarter) => {
+    const goalColumn = getQuarterColumn(quarter)
+    const goalValue = toNumber(base?.[goalColumn])
+
+    return {
+      id: base?.id || null,
+      employee_code: asText(base?.employee_code || selectedEmployeeRow?.employee_code),
+      employee_name: asText(base?.employee_name || selectedEmployeeRow?.employee_name),
+      reporting_manager: asText(base?.reporting_manager || selectedEmployeeRow?.reporting_manager),
+      reporting_manager_id: asText(base?.reporting_manager_id || selectedEmployeeRow?.reporting_manager_id),
+      designation: asText(base?.designation || selectedEmployeeRow?.designation),
+      q1_monthly_goal: toNumber(base?.q1_monthly_goal),
+      q2_monthly_goal: toNumber(base?.q2_monthly_goal),
+      q3_monthly_goal: toNumber(base?.q3_monthly_goal),
+      q4_monthly_goal: toNumber(base?.q4_monthly_goal),
+      monthly_sheet_goal: goalValue,
+      quarter,
+      starting_date: base?.starting_date || null,
+      ending_date: base?.ending_date || null,
+      updated_at: base?.updated_at || null,
+      _isPlaceholder: false,
+    }
+  })
+}
+
 function GoalMaster() {
   const mountedRef = useRef(true)
   const uploadInputRef = useRef(null)
@@ -110,8 +154,16 @@ function GoalMaster() {
     reporting_manager: '',
     reporting_manager_id: '',
     designation: '',
+    q1_monthly_goal: '',
+    q2_monthly_goal: '',
+    q3_monthly_goal: '',
+    q4_monthly_goal: '',
+    starting_date: '',
+    ending_date: '',
+  })
+  const [editingDetailRowId, setEditingDetailRowId] = useState('')
+  const [detailEditData, setDetailEditData] = useState({
     monthly_sheet_goal: '',
-    quarter: '',
     starting_date: '',
     ending_date: '',
   })
@@ -123,8 +175,10 @@ function GoalMaster() {
       reporting_manager: '',
       reporting_manager_id: '',
       designation: '',
-      monthly_sheet_goal: '',
-      quarter: '',
+      q1_monthly_goal: '',
+      q2_monthly_goal: '',
+      q3_monthly_goal: '',
+      q4_monthly_goal: '',
       starting_date: '',
       ending_date: '',
     })
@@ -158,7 +212,7 @@ function GoalMaster() {
           async () => {
             const { data, error } = await supabase
               .from('goals_master')
-              .select('id, employee_code, employee_name, reporting_manager, reporting_manager_id, designation, monthly_sheet_goal, quarter, starting_date, ending_date, updated_at')
+              .select('id, employee_code, employee_name, reporting_manager, reporting_manager_id, designation, q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal, starting_date, ending_date, updated_at')
               .order('ending_date', { ascending: true, nullsFirst: true })
               .order('updated_at', { ascending: false })
 
@@ -196,8 +250,16 @@ function GoalMaster() {
           reporting_manager: asText(goal?.reporting_manager || managerNameFromCode),
           reporting_manager_id: managerCode,
           designation: asText(goal?.designation),
-          monthly_sheet_goal: Number(goal?.monthly_sheet_goal || 0),
-          quarter: asText(goal?.quarter),
+          q1_monthly_goal: Number(goal?.q1_monthly_goal || 0),
+          q2_monthly_goal: Number(goal?.q2_monthly_goal || 0),
+          q3_monthly_goal: Number(goal?.q3_monthly_goal || 0),
+          q4_monthly_goal: Number(goal?.q4_monthly_goal || 0),
+          monthly_sheet_goal: Math.round((
+            Number(goal?.q1_monthly_goal || 0)
+            + Number(goal?.q2_monthly_goal || 0)
+            + Number(goal?.q3_monthly_goal || 0)
+            + Number(goal?.q4_monthly_goal || 0)
+          ) / 4),
           starting_date: goal?.starting_date || null,
           ending_date: goal?.ending_date || null,
           updated_at: goal?.updated_at || null,
@@ -261,7 +323,10 @@ function GoalMaster() {
     setFormSuccess('')
 
     const employeeCode = asText(formData.employee_code)
-    const monthlyGoal = Number(formData.monthly_sheet_goal)
+    const q1Goal = Number(formData.q1_monthly_goal)
+    const q2Goal = Number(formData.q2_monthly_goal)
+    const q3Goal = Number(formData.q3_monthly_goal)
+    const q4Goal = Number(formData.q4_monthly_goal)
     const startingDate = asText(formData.starting_date)
     const endingDate = asText(formData.ending_date)
 
@@ -270,8 +335,10 @@ function GoalMaster() {
       return
     }
 
-    if (!Number.isFinite(monthlyGoal) || monthlyGoal < 0) {
-      setFormError('Monthly Sheet Goal must be a valid non-negative number.')
+    const quarterGoals = [q1Goal, q2Goal, q3Goal, q4Goal]
+    const hasInvalidQuarterGoal = quarterGoals.some(value => !Number.isFinite(value) || value < 0)
+    if (hasInvalidQuarterGoal) {
+      setFormError('Please enter valid non-negative monthly goals for Q1, Q2, Q3 and Q4.')
       return
     }
 
@@ -289,8 +356,10 @@ function GoalMaster() {
         reporting_manager: asText(formData.reporting_manager) || null,
         reporting_manager_id: asText(formData.reporting_manager_id) || null,
         designation: asText(formData.designation) || null,
-        monthly_sheet_goal: monthlyGoal,
-        quarter: asText(formData.quarter) || null,
+        q1_monthly_goal: q1Goal,
+        q2_monthly_goal: q2Goal,
+        q3_monthly_goal: q3Goal,
+        q4_monthly_goal: q4Goal,
         starting_date: startingDate || null,
         ending_date: endingDate || null,
       }
@@ -302,24 +371,16 @@ function GoalMaster() {
           .eq('id', editingGoalId)
         if (updateError) throw updateError
       } else {
-        const today = todayDateString()
-        const { error: closeError } = await supabase
+        const { error: upsertError } = await supabase
           .from('goals_master')
-          .update({ ending_date: today })
-          .eq('employee_code', employeeCode)
-          .is('ending_date', null)
-        if (closeError) throw closeError
-
-        const { error: insertError } = await supabase
-          .from('goals_master')
-          .insert(payload)
-        if (insertError) throw insertError
+          .upsert(payload, { onConflict: 'employee_code' })
+        if (upsertError) throw upsertError
       }
 
       await cacheDelete('goal_master_table_rows_v1')
       await loadData()
 
-      setFormSuccess(editingEmployeeCode ? 'Goal record updated successfully.' : 'New goal record added successfully and previous active record closed.')
+      setFormSuccess(editingEmployeeCode ? 'Goal record updated successfully.' : 'Quarter-wise goal record saved successfully.')
       resetForm()
       setShowAddForm(false)
     } catch (err) {
@@ -349,8 +410,10 @@ function GoalMaster() {
       reporting_manager: asText(row.reporting_manager),
       reporting_manager_id: asText(row.reporting_manager_id),
       designation: asText(row.designation),
-      monthly_sheet_goal: String(row.monthly_sheet_goal ?? ''),
-      quarter: asText(row.quarter),
+      q1_monthly_goal: String(row.q1_monthly_goal ?? ''),
+      q2_monthly_goal: String(row.q2_monthly_goal ?? ''),
+      q3_monthly_goal: String(row.q3_monthly_goal ?? ''),
+      q4_monthly_goal: String(row.q4_monthly_goal ?? ''),
       starting_date: asText(row.starting_date),
       ending_date: asText(row.ending_date),
     })
@@ -405,8 +468,10 @@ function GoalMaster() {
       reporting_manager: row.reporting_manager || '',
       reporting_manager_id: row.reporting_manager_id || '',
       designation: row.designation || '',
-      monthly_sheet_goal: Number(row.monthly_sheet_goal || 0),
-      quarter: row.quarter || '',
+      q1_monthly_goal: Number(row.q1_monthly_goal || 0),
+      q2_monthly_goal: Number(row.q2_monthly_goal || 0),
+      q3_monthly_goal: Number(row.q3_monthly_goal || 0),
+      q4_monthly_goal: Number(row.q4_monthly_goal || 0),
       starting_date: row.starting_date || '',
       ending_date: row.ending_date || '',
     }))
@@ -439,11 +504,13 @@ function GoalMaster() {
       const payloadRows = rawRows
         .map(row => {
           const employeeCode = asText(pickCell(row, ['employee_code', 'employee code', 'employeecode']))
-          const monthlyGoalRaw = pickCell(row, ['monthly_sheet_goal', 'monthly sheet goal', 'monthlysheetgoal'])
-          const monthlyGoal = Number(monthlyGoalRaw)
+          const q1Goal = Number(pickCell(row, ['q1_monthly_goal', 'q1 monthly goal', 'q1goal', 'q1']))
+          const q2Goal = Number(pickCell(row, ['q2_monthly_goal', 'q2 monthly goal', 'q2goal', 'q2']))
+          const q3Goal = Number(pickCell(row, ['q3_monthly_goal', 'q3 monthly goal', 'q3goal', 'q3']))
+          const q4Goal = Number(pickCell(row, ['q4_monthly_goal', 'q4 monthly goal', 'q4goal', 'q4']))
 
           if (!employeeCode) return null
-          if (!Number.isFinite(monthlyGoal)) return null
+          if (![q1Goal, q2Goal, q3Goal, q4Goal].every(Number.isFinite)) return null
 
           return {
             employee_code: employeeCode,
@@ -451,8 +518,10 @@ function GoalMaster() {
             reporting_manager: asText(pickCell(row, ['reporting_manager', 'reporting manager'])) || null,
             reporting_manager_id: asText(pickCell(row, ['reporting_manager_id', 'reporting manager id', 'reporting manager code'])) || null,
             designation: asText(pickCell(row, ['designation'])) || null,
-            monthly_sheet_goal: monthlyGoal,
-            quarter: asText(pickCell(row, ['quarter', 'quator'])) || null,
+            q1_monthly_goal: q1Goal,
+            q2_monthly_goal: q2Goal,
+            q3_monthly_goal: q3Goal,
+            q4_monthly_goal: q4Goal,
             starting_date: parseDateInput(pickCell(row, ['starting_date', 'starting date'])) || null,
             ending_date: parseDateInput(pickCell(row, ['ending_date', 'ending date'])) || null,
           }
@@ -460,42 +529,21 @@ function GoalMaster() {
         .filter(Boolean)
 
       if (payloadRows.length === 0) {
-        throw new Error('No valid rows found. Ensure employee_code and monthly_sheet_goal are present.')
+        throw new Error('No valid rows found. Ensure employee_code and q1/q2/q3/q4 monthly goals are present.')
       }
 
-      const today = todayDateString()
-      let closedCount = 0
-
       for (const row of payloadRows) {
-        const { data: activeRows, error: activeCheckError } = await supabase
+        const { error: upsertError } = await supabase
           .from('goals_master')
-          .select('id')
-          .eq('employee_code', row.employee_code)
-          .is('ending_date', null)
-
-        if (activeCheckError) throw activeCheckError
-
-        if ((activeRows || []).length > 0) {
-          const { error: closeError } = await supabase
-            .from('goals_master')
-            .update({ ending_date: today })
-            .eq('employee_code', row.employee_code)
-            .is('ending_date', null)
-          if (closeError) throw closeError
-          closedCount += activeRows.length
-        }
-
-        const { error: insertError } = await supabase
-          .from('goals_master')
-          .insert(row)
-        if (insertError) throw insertError
+          .upsert(row, { onConflict: 'employee_code' })
+        if (upsertError) throw upsertError
       }
 
       await cacheDelete('goal_master_table_rows_v1')
       await loadData()
       setUploadMessage({
         type: 'success',
-        text: `Upload successful. Added ${payloadRows.length} records and closed ${closedCount} previous active record(s).`,
+        text: `Upload successful. Saved ${payloadRows.length} goal record(s).`,
       })
     } catch (err) {
       console.error('Goal report upload failed:', err)
@@ -527,24 +575,27 @@ function GoalMaster() {
     setDetailRows([])
     setDetailQuarterFilter('All')
     setDetailSortOrder('latest')
+    setEditingDetailRowId('')
+    setDetailEditData({ monthly_sheet_goal: '', starting_date: '', ending_date: '' })
 
     try {
       const { data, error } = await supabase
         .from('goals_master')
-        .select('employee_code, employee_name, reporting_manager, reporting_manager_id, designation, monthly_sheet_goal, quarter, starting_date, ending_date, updated_at')
+        .select('id, employee_code, employee_name, reporting_manager, reporting_manager_id, designation, q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal, starting_date, ending_date, updated_at')
         .eq('employee_code', employeeCode)
         .order('starting_date', { ascending: false, nullsFirst: false })
         .order('updated_at', { ascending: false, nullsFirst: false })
 
       if (error) throw error
 
-      const normalized = (data || []).map(item => ({
+      const latestRow = (data || [])[0] || null
+      const fourQuarterRows = ensureFourQuarterRows(latestRow, row).map(item => ({
         ...item,
         duration_label: getDurationLabel(item.starting_date, item.ending_date),
       }))
 
       if (!mountedRef.current) return
-      setDetailRows(normalized)
+      setDetailRows(fourQuarterRows)
     } catch (err) {
       console.error('Error loading goal details:', err)
       if (mountedRef.current) setDetailError(err.message || 'Failed to load goal details')
@@ -577,10 +628,119 @@ function GoalMaster() {
     const totalRecords = visibleDetailRows.length
     const totalGoal = visibleDetailRows.reduce((sum, item) => sum + Number(item.monthly_sheet_goal || 0), 0)
     const avgGoal = totalRecords > 0 ? Math.round(totalGoal / totalRecords) : 0
-    const withDuration = visibleDetailRows.filter(item => item.duration_label && item.duration_label !== '-').length
 
-    return { totalRecords, totalGoal, avgGoal, withDuration }
+    return { totalRecords, totalGoal, avgGoal }
   }, [visibleDetailRows])
+
+  const startDetailEdit = (item) => {
+    setEditingDetailRowId(asText(item?.id))
+    setDetailEditData({
+      monthly_sheet_goal: String(item?.monthly_sheet_goal ?? ''),
+      starting_date: asText(item?.starting_date),
+      ending_date: asText(item?.ending_date),
+    })
+    setDetailError('')
+  }
+
+  const cancelDetailEdit = () => {
+    setEditingDetailRowId('')
+    setDetailEditData({ monthly_sheet_goal: '', starting_date: '', ending_date: '' })
+  }
+
+  const saveDetailEdit = async (item) => {
+    const rowId = asText(item?.id)
+    const quarter = normalizeQuarter(item?.quarter)
+    const goalColumn = getQuarterColumn(quarter)
+
+    const goalValue = Number(detailEditData.monthly_sheet_goal)
+    const startDate = asText(detailEditData.starting_date)
+    const endDate = asText(detailEditData.ending_date)
+
+    if (!Number.isFinite(goalValue) || goalValue < 0) {
+      setDetailError('Monthly Sheet Goal must be a valid non-negative number.')
+      return
+    }
+
+    if (startDate && endDate && startDate > endDate) {
+      setDetailError('Ending Date cannot be earlier than Starting Date.')
+      return
+    }
+
+    try {
+      setSaving(true)
+      setDetailError('')
+
+      if (!rowId || !goalColumn) throw new Error('Unable to save quarter goal because row id or quarter is missing.')
+
+      const { error: updateError } = await supabase
+        .from('goals_master')
+        .update({
+          [goalColumn]: goalValue,
+          starting_date: startDate || null,
+          ending_date: endDate || null,
+        })
+        .eq('id', rowId)
+
+      if (updateError) throw updateError
+
+      const updatedRows = detailRows.map(detailRow => {
+        const isCurrentRow = asText(detailRow.id) === rowId && normalizeQuarter(detailRow.quarter) === quarter
+
+        if (!isCurrentRow) return detailRow
+
+        const updatedRow = {
+          ...detailRow,
+          monthly_sheet_goal: goalValue,
+          [goalColumn]: goalValue,
+          starting_date: startDate || null,
+          ending_date: endDate || null,
+        }
+
+        return {
+          ...updatedRow,
+          duration_label: getDurationLabel(updatedRow.starting_date, updatedRow.ending_date),
+        }
+      })
+
+      setDetailRows(updatedRows)
+      await cacheDelete('goal_master_table_rows_v1')
+      await loadData()
+
+      if (selectedEmployee?.employee_code) {
+        const { data, error } = await supabase
+          .from('goals_master')
+          .select('id, employee_code, employee_name, reporting_manager, reporting_manager_id, designation, q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal, starting_date, ending_date, updated_at')
+          .eq('employee_code', selectedEmployee.employee_code)
+          .order('starting_date', { ascending: false, nullsFirst: false })
+          .order('updated_at', { ascending: false, nullsFirst: false })
+
+        if (!error) {
+          const refreshed = ensureFourQuarterRows(
+            (data || [])[0] || null,
+            {
+              employee_code: selectedEmployee.employee_code,
+              employee_name: selectedEmployee.employee_name,
+              reporting_manager: item.reporting_manager,
+              reporting_manager_id: item.reporting_manager_id,
+              designation: item.designation,
+            }
+          ).map(rowData => ({
+            ...rowData,
+            duration_label: getDurationLabel(rowData.starting_date, rowData.ending_date),
+          }))
+
+          setDetailRows(refreshed)
+        }
+      }
+
+      cancelDetailEdit()
+    } catch (err) {
+      console.error('Error updating detail row:', err)
+      setDetailError(err.message || 'Failed to update goal details.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <main className="gm-main">
@@ -672,7 +832,10 @@ function GoalMaster() {
                 <th>Reporting Manager</th>
                 <th>Reporting Manager ID</th>
                 <th>Designation</th>
-                <th>Monthly Sheet Goal</th>
+                <th>Q1 Goal</th>
+                <th>Q2 Goal</th>
+                <th>Q3 Goal</th>
+                <th>Q4 Goal</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -689,7 +852,10 @@ function GoalMaster() {
                   <td>{row.reporting_manager || '-'}</td>
                   <td>{row.reporting_manager_id || '-'}</td>
                   <td>{row.designation || '-'}</td>
-                  <td>{Number(row.monthly_sheet_goal || 0).toLocaleString()}</td>
+                  <td>{Number(row.q1_monthly_goal || 0).toLocaleString()}</td>
+                  <td>{Number(row.q2_monthly_goal || 0).toLocaleString()}</td>
+                  <td>{Number(row.q3_monthly_goal || 0).toLocaleString()}</td>
+                  <td>{Number(row.q4_monthly_goal || 0).toLocaleString()}</td>
                   <td>
                     <div className="gm-row-actions">
                       <button type="button" className="gm-action-btn gm-action-edit" onClick={(event) => openEditForm(event, row)}>
@@ -776,24 +942,54 @@ function GoalMaster() {
               </div>
 
               <div className="gm-field">
-                <label>Monthly Sheet Goal *</label>
+                <label>Q1 Monthly Goal *</label>
                 <input
                   type="number"
                   min="0"
                   step="1"
-                  value={formData.monthly_sheet_goal}
-                  onChange={(event) => handleFormChange('monthly_sheet_goal', event.target.value)}
+                  value={formData.q1_monthly_goal}
+                  onChange={(event) => handleFormChange('q1_monthly_goal', event.target.value)}
                   placeholder="e.g. 500"
                   required
                 />
               </div>
 
               <div className="gm-field">
-                <label>Quarter</label>
+                <label>Q2 Monthly Goal *</label>
                 <input
-                  value={formData.quarter}
-                  onChange={(event) => handleFormChange('quarter', event.target.value)}
-                  placeholder="Q1 / Q2 / Q3 / Q4"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={formData.q2_monthly_goal}
+                  onChange={(event) => handleFormChange('q2_monthly_goal', event.target.value)}
+                  placeholder="e.g. 500"
+                  required
+                />
+              </div>
+
+              <div className="gm-field">
+                <label>Q3 Monthly Goal *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={formData.q3_monthly_goal}
+                  onChange={(event) => handleFormChange('q3_monthly_goal', event.target.value)}
+                  placeholder="e.g. 500"
+                  required
+                />
+              </div>
+
+              <div className="gm-field">
+                <label>Q4 Monthly Goal *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={formData.q4_monthly_goal}
+                  onChange={(event) => handleFormChange('q4_monthly_goal', event.target.value)}
+                  placeholder="e.g. 500"
+                  required
                 />
               </div>
 
@@ -869,7 +1065,6 @@ function GoalMaster() {
                     <span className="gm-chip"><strong>{detailStats.totalRecords}</strong> Records</span>
                     <span className="gm-chip"><strong>{detailStats.totalGoal.toLocaleString()}</strong> Total Goal</span>
                     <span className="gm-chip"><strong>{detailStats.avgGoal.toLocaleString()}</strong> Avg Goal</span>
-                    <span className="gm-chip"><strong>{detailStats.withDuration}</strong> With Duration</span>
                   </div>
                   <div className="gm-detail-controls">
                     <select
@@ -897,28 +1092,60 @@ function GoalMaster() {
                   <thead>
                     <tr>
                       <th>Quarter</th>
-                      <th>Starting Date</th>
-                      <th>Ending Date</th>
-                      <th>Duration</th>
                       <th>Monthly Sheet Goal</th>
-                      <th>Designation</th>
-                      <th>Reporting Manager</th>
-                      <th>Reporting Manager ID</th>
                       <th>Updated At</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleDetailRows.map((item, index) => (
                       <tr key={`${item.employee_code || 'emp'}-${item.updated_at || index}-${index}`}>
                         <td>{asText(item.quarter) || '-'}</td>
-                        <td>{formatDate(item.starting_date)}</td>
-                        <td>{formatDate(item.ending_date)}</td>
-                        <td>{item.duration_label}</td>
-                        <td>{Number(item.monthly_sheet_goal || 0).toLocaleString()}</td>
-                        <td>{asText(item.designation) || '-'}</td>
-                        <td>{asText(item.reporting_manager) || '-'}</td>
-                        <td>{asText(item.reporting_manager_id) || '-'}</td>
+                        <td>
+                          {editingDetailRowId === asText(item.id) ? (
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={detailEditData.monthly_sheet_goal}
+                              onChange={(event) => setDetailEditData(prev => ({ ...prev, monthly_sheet_goal: event.target.value }))}
+                            />
+                          ) : Number(item.monthly_sheet_goal || 0).toLocaleString()}
+                        </td>
                         <td>{formatDate(item.updated_at)}</td>
+                        <td>
+                          {editingDetailRowId === asText(item.id) ? (
+                            <div className="gm-row-actions">
+                              <button
+                                type="button"
+                                className="gm-action-btn gm-action-edit"
+                                onClick={() => saveDetailEdit(item)}
+                                disabled={saving}
+                              >
+                                <i className={`fa-solid ${saving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                className="gm-action-btn gm-action-delete"
+                                onClick={cancelDetailEdit}
+                                disabled={saving}
+                              >
+                                <i className="fa-solid fa-xmark"></i>
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="gm-action-btn gm-action-edit"
+                              onClick={() => startDetailEdit(item)}
+                            >
+                              <i className="fa-solid fa-pen"></i>
+                              Edit
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

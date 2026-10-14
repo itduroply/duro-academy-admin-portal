@@ -51,6 +51,13 @@ function getCurrentQuarterKey() {
   return 'Q4'
 }
 
+function getQuarterGoalColumnByMonth(month) {
+  if ([4, 5, 6].includes(Number(month))) return 'q1_monthly_goal'
+  if ([7, 8, 9].includes(Number(month))) return 'q2_monthly_goal'
+  if ([10, 11, 12].includes(Number(month))) return 'q3_monthly_goal'
+  return 'q4_monthly_goal'
+}
+
 async function fetchPaged(getQuery, pageSize = 1000) {
   let from = 0
   let allRows = []
@@ -602,15 +609,21 @@ export default function AsmPerformanceDashboard({
       endDateExclusive: `${currentFY + 1}-04-01`,
     }
 
-    const fetchTotalMonthlyGoal = async (codes) => {
+    const fetchGoalRows = async (codes) => {
       const uniqueCodes = [...new Set((codes || []).map(code => String(code || '').trim()).filter(Boolean))]
-      if (uniqueCodes.length === 0) return 0
+      if (uniqueCodes.length === 0) return []
       const { data, error } = await supabase
         .from('goals_master')
-        .select('employee_code, monthly_sheet_goal')
+        .select('employee_code, q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal')
         .in('employee_code', uniqueCodes)
-      if (error || !data) return 0
-      return data.reduce((sum, row) => sum + toNumber(row.monthly_sheet_goal), 0)
+        .is('ending_date', null)
+      if (error || !data) return []
+      return data
+    }
+
+    const getTotalMonthlyGoalForMonth = (goalRows, month) => {
+      const column = getQuarterGoalColumnByMonth(month)
+      return (goalRows || []).reduce((sum, row) => sum + toNumber(row?.[column]), 0)
     }
 
     const managerAliases = buildCodeAliases(exactEmployeeId)
@@ -684,11 +697,11 @@ export default function AsmPerformanceDashboard({
         return collected
       }
 
-      const [claimedRows, statusRows, totalMonthlyGoal, sheetGoalMonthlyBase, pointsMasterRes] = await Promise.all([
+      const [claimedRows, statusRows, dmiGoalRows, sheetGoalRows, pointsMasterRes] = await Promise.all([
         fetchClaims('claim_date'),
         fetchClaims('status_date'),
-        fetchTotalMonthlyGoal(dmiGoalCodeList),
-        fetchTotalMonthlyGoal(sheetGoalCodeList),
+        fetchGoalRows(dmiGoalCodeList),
+        fetchGoalRows(sheetGoalCodeList),
         supabase.from('sheet_point_master').select('brand_name, points_per_sheet'),
       ])
 
@@ -745,8 +758,17 @@ export default function AsmPerformanceDashboard({
         return a.brandCategory.localeCompare(b.brandCategory)
       })
 
-      const filteredGoal = calculateSheetGoal(sheetGoalMonthlyBase, monthYearPairs)
+      const filteredGoal = monthYearPairs.reduce((sum, pair) => {
+        const monthlyBase = getTotalMonthlyGoalForMonth(sheetGoalRows, pair.month)
+        return sum + (monthlyBase * getQuarterFactor(pair.month))
+      }, 0)
+
+      const averageMonthlyGoal = monthYearPairs.length > 0
+        ? monthYearPairs.reduce((sum, pair) => sum + getTotalMonthlyGoalForMonth(dmiGoalRows, pair.month), 0) / monthYearPairs.length
+        : 0
+
       const computedDmiGoal = monthYearPairs.reduce((sum, pair) => {
+        const totalMonthlyGoal = getTotalMonthlyGoalForMonth(dmiGoalRows, pair.month)
         const adjusted = totalMonthlyGoal * getQuarterFactor(pair.month)
         const rounded = Math.round(adjusted / 55)
         const floorValue = rounded > 8 ? rounded : 8
@@ -760,7 +782,7 @@ export default function AsmPerformanceDashboard({
           approvedSummary: totalApprovedSheets,
           points: totalPoints,
           goal: filteredGoal,
-          baseMonthlyGoal: totalMonthlyGoal,
+          baseMonthlyGoal: averageMonthlyGoal,
           brandBreakdown,
         },
         dmiGoal: computedDmiGoal,
@@ -1030,8 +1052,12 @@ export default function AsmPerformanceDashboard({
       const activeDmiCount = activeDmiEntries.length  // sum across all selected months (not unique accounts)
       const claimedDmiCount = [...new Set(dmiClaims.map(claim => normalizeAccount(claim.account_number)).filter(Boolean))].length
       const achievedSheetsInPeriod = dmiClaims.reduce((sum, claim) => sum + toNumber(claim.approved_qty), 0)
-      const averageSheetsPerDmi = activeDmiCount + newDmiCount > 0
-        ? Number((achievedSheetsInPeriod / (activeDmiCount + newDmiCount)).toFixed(1))
+      const approvedDmisForAverage = new Set([
+        ...activeDmiEntries.map(entry => entry.account),
+        ...Object.values(newDmiByMonth).flat(),
+      ]).size
+      const averageSheetsPerDmi = approvedDmisForAverage > 0
+        ? Number((achievedSheetsInPeriod / approvedDmisForAverage).toFixed(1))
         : 0
       const rawMultiplier = averageSheetsPerDmi < 15 ? 0.15 : averageSheetsPerDmi < 40 ? 0.5 : 1
       const finalRawPoints = Math.round(totalRawPoints * rawMultiplier)
@@ -1224,15 +1250,50 @@ export default function AsmPerformanceDashboard({
         activeTierMap[account] = row.tier
       })
 
-      // ── STEP 5: Compute goal (1 visit/month per active S/G/T account) ────────
+      // ── STEP 5: Compute month-wise S/G/T goals and sum for selected months ───
+      // ASM rule: Silver/Gold/Titanium each contribute 1 per influencer per month.
       const tierMonthlyGoalMap = { Silver: 0, Gold: 0, Titanium: 0 }
-      let monthlyVisitGoal = 0
-      Object.values(activeTierMap).forEach(tier => {
-        if (tierMonthlyGoalMap[tier] !== undefined) {
-          tierMonthlyGoalMap[tier] += 1
-          monthlyVisitGoal += 1
-        }
+      const enrollmentRowsByAccount = {}
+      verifyEnrollments.forEach(row => {
+        const account = String(row?.account_no || '').trim()
+        if (!account) return
+        if (!enrollmentRowsByAccount[account]) enrollmentRowsByAccount[account] = []
+        enrollmentRowsByAccount[account].push(row)
       })
+
+      Object.values(enrollmentRowsByAccount).forEach(rowsForAccount => {
+        rowsForAccount.sort((a, b) => {
+          const ta = parseDateSafe(a?.created_at)?.getTime() || 0
+          const tb = parseDateSafe(b?.created_at)?.getTime() || 0
+          return tb - ta
+        })
+      })
+
+      monthYearPairs.forEach(pair => {
+        const monthEndExclusive = new Date(pair.year, pair.month, 1)
+
+        Object.values(enrollmentRowsByAccount).forEach(rowsForAccount => {
+          const latestAsOfMonth = rowsForAccount.find(row => {
+            const createdAt = parseDateSafe(row?.created_at)
+            return createdAt && createdAt < monthEndExclusive
+          })
+
+          if (!latestAsOfMonth) return
+
+          const isActive = ['true', 't', '1', 'yes', 'y'].includes(String(latestAsOfMonth.is_active ?? '').trim().toLowerCase())
+          if (!isActive) return
+
+          const isr = String(latestAsOfMonth.mapped_isr || '').trim().toLowerCase()
+          if (!isrPrefixesLower.some(prefix => isr.startsWith(prefix))) return
+
+          const tier = String(latestAsOfMonth.tier || '').trim()
+          if (tier === 'Silver') tierMonthlyGoalMap.Silver += 1
+          else if (tier === 'Gold') tierMonthlyGoalMap.Gold += 1
+          else if (tier === 'Titanium') tierMonthlyGoalMap.Titanium += 1
+        })
+      })
+
+      const sgtGoal = tierMonthlyGoalMap.Silver + tierMonthlyGoalMap.Gold + tierMonthlyGoalMap.Titanium
 
       // ── STEP 6: Fetch visits for these accounts in the selected date window ──
       const visitIsrOrFilter = buildPrefixOrFilter('mapped_isr_code', rawCodes)
@@ -1252,9 +1313,8 @@ export default function AsmPerformanceDashboard({
           })
         : []
 
-      const activeSgtAccounts = new Set(Object.keys(activeTierMap))
       const filteredVisits = allVisits.filter(visit => {
-        if (!visit.visit_date || !activeSgtAccounts.has(String(visit.influencer_code || ''))) return false
+        if (!visit.visit_date || !visit.influencer_code) return false
         const parsed = getMonthYearFromValue(visit.visit_date)
         return parsed ? selectedMonthKeySet.has(`${parsed.month}_${parsed.year}`) : false
       })
@@ -1272,9 +1332,28 @@ export default function AsmPerformanceDashboard({
       Array.from(uniqueDayVisits.values()).forEach(visit => {
         const date = parseDateSafe(visit.visit_date)
         if (!date) return
-        const account = String(visit.influencer_code || '')
-        const tier = activeTierMap[account]
-        if (!tier) return
+        const account = String(visit.influencer_code || '').trim()
+        if (!account) return
+
+        const rowsForAccount = enrollmentRowsByAccount[account] || []
+        if (rowsForAccount.length === 0) return
+
+        const monthEndExclusive = new Date(date.getFullYear(), date.getMonth() + 1, 1)
+        const latestAsOfMonth = rowsForAccount.find(row => {
+          const createdAt = parseDateSafe(row?.created_at)
+          return createdAt && createdAt < monthEndExclusive
+        })
+        if (!latestAsOfMonth) return
+
+        const isActive = ['true', 't', '1', 'yes', 'y'].includes(String(latestAsOfMonth.is_active ?? '').trim().toLowerCase())
+        if (!isActive) return
+
+        const isr = String(latestAsOfMonth.mapped_isr || '').trim().toLowerCase()
+        if (!isrPrefixesLower.some(prefix => isr.startsWith(prefix))) return
+
+        const tier = String(latestAsOfMonth.tier || '').trim()
+        if (!['Silver', 'Gold', 'Titanium'].includes(tier)) return
+
         const key = `${account}_${date.getMonth() + 1}_${date.getFullYear()}`
         if (!monthlyVisitCounts[key]) monthlyVisitCounts[key] = { count: 0, tier }
         monthlyVisitCounts[key].count += 1
@@ -1283,18 +1362,19 @@ export default function AsmPerformanceDashboard({
       let totalAchievedVisits = 0
       const tierAchievedMap = { Silver: 0, Gold: 0, Titanium: 0 }
       Object.values(monthlyVisitCounts).forEach(({ count, tier }) => {
-        const capped = Math.min(count, 1)
+        const cap = 1
+        const capped = Math.min(count, cap)
         totalAchievedVisits += capped
         if (tierAchievedMap[tier] !== undefined) tierAchievedMap[tier] += capped
       })
 
       return {
-        visitGoal: monthlyVisitGoal * monthYearPairs.length,
+        visitGoal: sgtGoal,
         achievedVisits: totalAchievedVisits,
         sgtTierBreakdown: ['Silver', 'Gold', 'Titanium'].map(tier => ({
           tier,
           achievedVisits: tierAchievedMap[tier] || 0,
-          goalVisits: (tierMonthlyGoalMap[tier] || 0) * monthYearPairs.length,
+          goalVisits: tierMonthlyGoalMap[tier] || 0,
         })),
       }
     }
@@ -1527,7 +1607,7 @@ export default function AsmPerformanceDashboard({
       }),
       fetchDmiPoints({ codes: allCodes, monthYearPairs: sortedPairs }),
       fetchSgtCoverage({ codes: sgtCoverageCodes, monthYearPairs: sortedPairs }),
-      fetchWarTask({ codes: allCodes, monthYearPairs: sortedPairs }),
+      fetchWarTask({ codes: [exactEmployeeId], monthYearPairs: sortedPairs, strictEmployeeCode: exactEmployeeId }),
       fetchBuddyWorking(),
       fetchDmiSiteVisits({ codes: allCodes, monthYearPairs: sortedPairs }),
     ])
@@ -1680,7 +1760,7 @@ export default function AsmPerformanceDashboard({
 
       const quarterKey = selectedQuarters.includes('All') ? 'all' : [...selectedQuarters].sort().join('-')
       const monthKey = selectedMonths.includes('All') ? 'all' : [...selectedMonths].sort((a, b) => Number(a) - Number(b)).join('-')
-      const cacheKey = `asm_perf_detail_v11_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}_${teamFilter}`
+      const cacheKey = `asm_perf_detail_v12_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}_${teamFilter}`
 
       const result = await cachedFetch(
         cacheKey,
@@ -1797,8 +1877,8 @@ export default function AsmPerformanceDashboard({
 
           const user = usersToProcess[currentIndex]
           const cacheKey = forceRefresh
-            ? `asm_perf_export_v7_retry_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
-            : `asm_perf_export_v7_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
+            ? `asm_perf_export_v8_retry_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
+            : `asm_perf_export_v8_${user.employee_id}_${selectedFYStart}_${selectionLabel}`
 
           let success = false
           let lastError = null

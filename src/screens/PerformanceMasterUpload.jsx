@@ -25,21 +25,28 @@ const SHEET_CONFIGS = {
   },
   goals_master: {
     label: 'Goals Master',
-    description: 'Employee monthly sheet sales goals',
+    description: 'Employee quarter-wise monthly sheet sales goals',
     table: 'goals_master',
     uniqueKey: 'employee_code',
     icon: 'fa-solid fa-bullseye',
     color: '#059669',
-    requiredColumns: ['employee_code', 'monthly_sheet_goal'],
-    preview: ['Employee Code', 'Designation', 'Monthly Sheet Goal'],
+    requiredColumns: ['employee_code', 'q1_monthly_goal', 'q2_monthly_goal', 'q3_monthly_goal', 'q4_monthly_goal'],
+    preview: ['Employee Code', 'Designation', 'Q1 Goal', 'Q2 Goal', 'Q3 Goal', 'Q4 Goal'],
     mapRow: (r) => {
       const code = str(r['Employee_code'] ?? r['Employee Code'] ?? r['EmployeeCode'] ?? r['employee_code'])
-      const goal = num(r['Monthly_Sheet_Goal'] ?? r['Monthly Sheet Goal'] ?? r['MonthlySheetGoal'] ?? r['monthly_sheet_goal'])
+      const q1 = num(r['Q1_Monthly_Goal'] ?? r['Q1 Monthly Goal'] ?? r['q1_monthly_goal'] ?? r['Q1'])
+      const q2 = num(r['Q2_Monthly_Goal'] ?? r['Q2 Monthly Goal'] ?? r['q2_monthly_goal'] ?? r['Q2'])
+      const q3 = num(r['Q3_Monthly_Goal'] ?? r['Q3 Monthly Goal'] ?? r['q3_monthly_goal'] ?? r['Q3'])
+      const q4 = num(r['Q4_Monthly_Goal'] ?? r['Q4 Monthly Goal'] ?? r['q4_monthly_goal'] ?? r['Q4'])
       if (!code) return null
+      if (![q1, q2, q3, q4].every(v => Number.isFinite(v))) return null
       return {
         employee_code: code,
         designation: str(r['Designation'] ?? r['designation']) ?? null,
-        monthly_sheet_goal: goal ?? 0,
+        q1_monthly_goal: q1 ?? 0,
+        q2_monthly_goal: q2 ?? 0,
+        q3_monthly_goal: q3 ?? 0,
+        q4_monthly_goal: q4 ?? 0,
       }
     },
   },
@@ -215,9 +222,9 @@ const SHEET_TEMPLATES = {
     sheetName: 'Goals_Master',
     fileName: 'Goals_Master_Format.xlsx',
     rows: [
-      { Employee_code: 'EMP001', Designation: 'Sales Executive', Monthly_Sheet_Goal: 500 },
-      { Employee_code: 'EMP002', Designation: 'Area Manager', Monthly_Sheet_Goal: 1000 },
-      { Employee_code: 'EMP003', Designation: 'Regional Head', Monthly_Sheet_Goal: 2000 },
+      { Employee_code: 'EMP001', Designation: 'Sales Executive', Q1_Monthly_Goal: 500, Q2_Monthly_Goal: 520, Q3_Monthly_Goal: 550, Q4_Monthly_Goal: 600 },
+      { Employee_code: 'EMP002', Designation: 'Area Manager', Q1_Monthly_Goal: 1000, Q2_Monthly_Goal: 1050, Q3_Monthly_Goal: 1100, Q4_Monthly_Goal: 1150 },
+      { Employee_code: 'EMP003', Designation: 'Regional Head', Q1_Monthly_Goal: 2000, Q2_Monthly_Goal: 2100, Q3_Monthly_Goal: 2200, Q4_Monthly_Goal: 2300 },
     ],
   },
   brand_category: {
@@ -627,13 +634,16 @@ function PerformanceMasterUpload() {
             </table>
           ) : activeTab === 'goals_master' ? (
             <table className="pmu-data-table">
-              <thead><tr><th>#</th><th>Employee Code</th><th>Designation</th><th>Monthly Goal (Sheets)</th><th>Last Updated</th><th></th></tr></thead>
+              <thead><tr><th>#</th><th>Employee Code</th><th>Designation</th><th>Q1 Goal</th><th>Q2 Goal</th><th>Q3 Goal</th><th>Q4 Goal</th><th>Last Updated</th><th></th></tr></thead>
               <tbody>{tableData.goals_master.map((row, i) => (
                 <tr key={row.id}>
                   <td>{i + 1}</td>
                   <td><code className="pmu-code">{row.employee_code}</code></td>
                   <td>{row.designation || '—'}</td>
-                  <td><strong style={{ color: '#059669' }}>{row.monthly_sheet_goal}</strong></td>
+                  <td><strong style={{ color: '#059669' }}>{row.q1_monthly_goal}</strong></td>
+                  <td><strong style={{ color: '#059669' }}>{row.q2_monthly_goal}</strong></td>
+                  <td><strong style={{ color: '#059669' }}>{row.q3_monthly_goal}</strong></td>
+                  <td><strong style={{ color: '#059669' }}>{row.q4_monthly_goal}</strong></td>
                   <td className="pmu-muted">{formatDate(row.updated_at)}</td>
                   <td><button className="pmu-btn-del" onClick={() => handleDeleteRow('goals_master', row.id)}><i className="fa-solid fa-trash"></i></button></td>
                 </tr>

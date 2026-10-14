@@ -54,6 +54,19 @@ function getCurrentQuarterKey() {
   return 'Q4'
 }
 
+function getQuarterGoalColumnByMonth(month) {
+  if ([4, 5, 6].includes(Number(month))) return 'q1_monthly_goal'
+  if ([7, 8, 9].includes(Number(month))) return 'q2_monthly_goal'
+  if ([10, 11, 12].includes(Number(month))) return 'q3_monthly_goal'
+  return 'q4_monthly_goal'
+}
+
+function getMonthlyGoalFromQuarterColumns(goalRow, month) {
+  if (!goalRow) return 0
+  const column = getQuarterGoalColumnByMonth(month)
+  return toNumber(goalRow?.[column])
+}
+
 async function fetchPaged(getQuery, pageSize = 1000) {
   let from = 0
   let allRows = []
@@ -269,12 +282,32 @@ async function computeDgoDetail(employeeId, monthYearPairs, fyStart) {
         .range(from, to),
       'mapped_isr_code'
     )),
-    supabase
-      .from('goals_master')
-      .select('monthly_sheet_goal')
-      .eq('employee_code', employeeId)
-      .maybeSingle()
-      .then(({ data }) => data),
+    (async () => {
+      const activeResult = await supabase
+        .from('goals_master')
+        .select('q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal, updated_at')
+        .eq('employee_code', employeeId)
+        .is('ending_date', null)
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+
+      if (!activeResult.error && Array.isArray(activeResult.data) && activeResult.data.length > 0) {
+        return activeResult.data[0]
+      }
+
+      const latestResult = await supabase
+        .from('goals_master')
+        .select('q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal, updated_at')
+        .eq('employee_code', employeeId)
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+
+      if (!latestResult.error && Array.isArray(latestResult.data) && latestResult.data.length > 0) {
+        return latestResult.data[0]
+      }
+
+      return null
+    })(),
     supabase
       .from('sheet_point_master')
       .select('brand_name, points_per_sheet')
@@ -375,9 +408,17 @@ async function computeDgoDetail(employeeId, monthYearPairs, fyStart) {
 
   const filteredClaimDateClaims = claimDateClaims.filter(c => pairMatch(c.claim_date))
   const filteredStatusDateClaims = allStatusDateClaims.filter(c => pairMatch(c.status_date))
-  const monthlyGoal = toNumber(goalRow?.monthly_sheet_goal)
-  const sheetGoal = sortedPairs.reduce((sum, pair) => sum + (monthlyGoal * getQuarterFactor(pair.month)), 0)
+  const monthlyGoalByPair = sortedPairs.map(pair => getMonthlyGoalFromQuarterColumns(goalRow, pair.month))
+  const averageMonthlyGoal = monthlyGoalByPair.length > 0
+    ? monthlyGoalByPair.reduce((sum, value) => sum + value, 0) / monthlyGoalByPair.length
+    : 0
+
+  const sheetGoal = sortedPairs.reduce((sum, pair) => {
+    const monthlyGoal = getMonthlyGoalFromQuarterColumns(goalRow, pair.month)
+    return sum + (monthlyGoal * getQuarterFactor(pair.month))
+  }, 0)
   const dmiGoal = sortedPairs.reduce((sum, pair) => {
+    const monthlyGoal = getMonthlyGoalFromQuarterColumns(goalRow, pair.month)
     const spg = monthlyGoal * getQuarterFactor(pair.month)
     const a = spg / 55
     const b = Math.round(a)
@@ -739,6 +780,7 @@ async function computeDgoDetail(employeeId, monthYearPairs, fyStart) {
   }
 
   const behaviorGoal = Math.round(sortedPairs.reduce((sum, pair) => {
+    const monthlyGoal = getMonthlyGoalFromQuarterColumns(goalRow, pair.month)
     const adjustedMonthlySheetGoal = monthlyGoal * getQuarterFactor(pair.month)
     const quarterlyEquivalentGoal = adjustedMonthlySheetGoal * 3
     const monthlyBehaviorGoal = quarterlyEquivalentGoal > 1800 ? adjustedMonthlySheetGoal * 0.2 : 120
@@ -777,7 +819,7 @@ async function computeDgoDetail(employeeId, monthYearPairs, fyStart) {
       approvedSummary: totalApprovedSheets,
       points: sheetPoints,
       goal: sheetGoal,
-      baseMonthlyGoal: monthlyGoal,
+      baseMonthlyGoal: averageMonthlyGoal,
       brandBreakdown,
     },
     dmiGoal,
@@ -810,12 +852,17 @@ async function computeAsmDetail(employeeId, monthYearPairs, fyStart) {
   const baseCodes = [exactEmployeeId, ...dgoTeam.map(item => String(item.employee_id || '').trim())].filter(Boolean)
   const allCodes = [...new Set(baseCodes.flatMap(buildCodeAliases))]
 
-  const fetchTotalMonthlyGoal = async (codes) => {
+  const fetchGoalRows = async (codes) => {
     const uniqueCodes = [...new Set((codes || []).map(code => String(code || '').trim()).filter(Boolean))]
-    if (uniqueCodes.length === 0) return 0
-    const { data, error } = await supabase.from('goals_master').select('employee_code, monthly_sheet_goal').in('employee_code', uniqueCodes)
-    if (error || !data) return 0
-    return data.reduce((sum, row) => sum + toNumber(row.monthly_sheet_goal), 0)
+    if (uniqueCodes.length === 0) return []
+    const { data, error } = await supabase.from('goals_master').select('employee_code, q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal').in('employee_code', uniqueCodes)
+    if (error || !data) return []
+    return data
+  }
+
+  const getTotalMonthlyGoalForMonth = (goalRows, month) => {
+    const column = getQuarterGoalColumnByMonth(month)
+    return (goalRows || []).reduce((sum, row) => sum + toNumber(row?.[column]), 0)
   }
 
   const fetchSheetPoints = async ({ codes, monthYearPairs, sheetGoalCodeList, dmiGoalCodeList, claimCodeExact = null }) => {
@@ -856,11 +903,11 @@ async function computeAsmDetail(employeeId, monthYearPairs, fyStart) {
       return collected
     }
 
-    const [claimedRows, statusRows, totalMonthlyGoal, sheetGoalMonthlyBase, pointsMasterRes] = await Promise.all([
+    const [claimedRows, statusRows, dmiGoalRows, sheetGoalRows, pointsMasterRes] = await Promise.all([
       fetchClaims('claim_date'),
       fetchClaims('status_date'),
-      fetchTotalMonthlyGoal(dmiGoalCodeList),
-      fetchTotalMonthlyGoal(sheetGoalCodeList),
+      fetchGoalRows(dmiGoalCodeList),
+      fetchGoalRows(sheetGoalCodeList),
       supabase.from('sheet_point_master').select('brand_name, points_per_sheet'),
     ])
 
@@ -905,8 +952,17 @@ async function computeAsmDetail(employeeId, monthYearPairs, fyStart) {
       return { brandCategory: category, qty, pointsPerSheet, totalPoints: totalCategoryPoints }
     })
 
-    const filteredGoal = monthYearPairs.reduce((sum, pair) => sum + (sheetGoalMonthlyBase * getQuarterFactor(pair.month)), 0)
+    const filteredGoal = monthYearPairs.reduce((sum, pair) => {
+      const monthlyBase = getTotalMonthlyGoalForMonth(sheetGoalRows, pair.month)
+      return sum + (monthlyBase * getQuarterFactor(pair.month))
+    }, 0)
+
+    const averageMonthlyGoal = monthYearPairs.length > 0
+      ? monthYearPairs.reduce((sum, pair) => sum + getTotalMonthlyGoalForMonth(dmiGoalRows, pair.month), 0) / monthYearPairs.length
+      : 0
+
     const computedDmiGoal = monthYearPairs.reduce((sum, pair) => {
+      const totalMonthlyGoal = getTotalMonthlyGoalForMonth(dmiGoalRows, pair.month)
       const adjusted = totalMonthlyGoal * getQuarterFactor(pair.month)
       const rounded = Math.round(adjusted / 55)
       const floorValue = rounded > 8 ? rounded : 8
@@ -920,7 +976,7 @@ async function computeAsmDetail(employeeId, monthYearPairs, fyStart) {
         approvedSummary: totalApprovedSheets,
         points: totalPoints,
         goal: filteredGoal,
-        baseMonthlyGoal: totalMonthlyGoal,
+        baseMonthlyGoal: averageMonthlyGoal,
         brandBreakdown,
       },
       dmiGoal: computedDmiGoal,
@@ -1176,7 +1232,11 @@ async function computeAsmDetail(employeeId, monthYearPairs, fyStart) {
     const activeDmiCount = activeDmiEntries.length
     const claimedDmiCount = [...new Set(dmiClaims.map(claim => normalizeAccount(claim.account_number)).filter(Boolean))].length
     const achievedSheetsInPeriod = dmiClaims.reduce((sum, claim) => sum + toNumber(claim.approved_qty), 0)
-    const averageSheetsPerDmi = activeDmiCount + newDmiCount > 0 ? parseFloat((achievedSheetsInPeriod / (activeDmiCount + newDmiCount)).toFixed(1)) : 0
+    const approvedDmisForAverage = new Set([
+      ...activeDmiEntries.map(entry => entry.account),
+      ...Object.values(newDmiByMonth).flat(),
+    ]).size
+    const averageSheetsPerDmi = approvedDmisForAverage > 0 ? parseFloat((achievedSheetsInPeriod / approvedDmisForAverage).toFixed(1)) : 0
     let rawPointsMultiplier = 1
     if (averageSheetsPerDmi < 15) rawPointsMultiplier = 0.15
     else if (averageSheetsPerDmi < 40) rawPointsMultiplier = 0.5

@@ -46,6 +46,19 @@ function getCurrentQuarterKey() {
   return 'Q4'
 }
 
+function getQuarterGoalColumnByMonth(month) {
+  if ([4, 5, 6].includes(month)) return 'q1_monthly_goal'
+  if ([7, 8, 9].includes(month)) return 'q2_monthly_goal'
+  if ([10, 11, 12].includes(month)) return 'q3_monthly_goal'
+  return 'q4_monthly_goal'
+}
+
+function getMonthlyGoalFromQuarterColumns(goalRow, month) {
+  if (!goalRow) return 0
+  const column = getQuarterGoalColumnByMonth(Number(month))
+  return toNumber(goalRow?.[column])
+}
+
 async function fetchPaged(getQuery) {
   const PAGE = 1000
   let from = 0
@@ -408,12 +421,32 @@ export default function PerformanceDashboard() {
       ),
 
       // 3. monthly sheet goal
-      supabase
-        .from('goals_master')
-        .select('monthly_sheet_goal')
-        .eq('employee_code', employeeId)
-        .maybeSingle()
-        .then(({ data }) => data),
+      (async () => {
+        const activeResult = await supabase
+          .from('goals_master')
+          .select('q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal, updated_at')
+          .eq('employee_code', employeeId)
+          .is('ending_date', null)
+          .order('updated_at', { ascending: false, nullsFirst: false })
+          .limit(1)
+
+        if (!activeResult.error && Array.isArray(activeResult.data) && activeResult.data.length > 0) {
+          return activeResult.data[0]
+        }
+
+        const latestResult = await supabase
+          .from('goals_master')
+          .select('q1_monthly_goal, q2_monthly_goal, q3_monthly_goal, q4_monthly_goal, updated_at')
+          .eq('employee_code', employeeId)
+          .order('updated_at', { ascending: false, nullsFirst: false })
+          .limit(1)
+
+        if (!latestResult.error && Array.isArray(latestResult.data) && latestResult.data.length > 0) {
+          return latestResult.data[0]
+        }
+
+        return null
+      })(),
 
       // 4. sheet point master (small lookup, no filter needed)
       supabase
@@ -571,9 +604,17 @@ export default function PerformanceDashboard() {
     // allStatusDateClaims already covers the full 2-FY window → used as dmiHistoryClaims below
 
     // Sheet points setup
-    const monthlyGoal = toNumber(goalRow?.monthly_sheet_goal)
-    const sheetGoal = sortedPairs.reduce((sum, pair) => sum + (monthlyGoal * getQuarterFactor(pair.month)), 0)
+    const monthlyGoalByPair = sortedPairs.map(pair => getMonthlyGoalFromQuarterColumns(goalRow, pair.month))
+    const averageMonthlyGoal = monthlyGoalByPair.length > 0
+      ? monthlyGoalByPair.reduce((sum, value) => sum + value, 0) / monthlyGoalByPair.length
+      : 0
+
+    const sheetGoal = sortedPairs.reduce((sum, pair) => {
+      const monthlyGoal = getMonthlyGoalFromQuarterColumns(goalRow, pair.month)
+      return sum + (monthlyGoal * getQuarterFactor(pair.month))
+    }, 0)
     const dmiGoal = sortedPairs.reduce((sum, pair) => {
+      const monthlyGoal = getMonthlyGoalFromQuarterColumns(goalRow, pair.month)
       const spg = monthlyGoal * getQuarterFactor(pair.month)
       const a = spg / 55
       const b = Math.round(a)
@@ -765,7 +806,7 @@ export default function PerformanceDashboard() {
       approvedSummary: totalApprovedSheets,
       points: sheetPoints,
       goal: sheetGoal,
-      baseMonthlyGoal: monthlyGoal,
+      baseMonthlyGoal: averageMonthlyGoal,
       brandBreakdown,
     }
 
@@ -962,14 +1003,52 @@ export default function PerformanceDashboard() {
     Object.entries(tierCountMap).forEach(([tier, count]) => {
       totalRawPoints += toNumber(count) * toNumber(tierPointsMap[tier])
     })
-    const activeDmiCount = selectedActiveEntries.length  // sum across all selected months (not unique accounts)
-    // Use qualified (>=10) account-month sheets to align with mobile DMI multiplier logic.
-    const approvedDmisForAverage = activeDmiCount + newDmiCount
+    const activeDmiCount = selectedActiveEntries.length  // sum across selected months (kept for existing points logic)
+    // Avg sheets per DMI should use unique approved DMI accounts in the selected period.
+    const approvedDmisForAverage = new Set([
+      ...selectedActiveEntries.map(entry => entry.account),
+      ...newDmiSet,
+    ]).size
     const averageSheetsPerDmi = approvedDmisForAverage > 0 ? parseFloat((approvedSheetsForAverage / approvedDmisForAverage).toFixed(1)) : 0
+    const monthRawPointsMap = new Map()
+    selectedActiveEntries.forEach(entry => {
+      const mk = monthYearKey(entry.month, entry.year)
+      const tier = normalizeTierLabel(entry.tier) || 'Unknown'
+      const tierPointsValue = toNumber(tierPointsMap[tier])
+      monthRawPointsMap.set(mk, (monthRawPointsMap.get(mk) || 0) + tierPointsValue)
+    })
+
+    const monthAverageSourceMap = new Map()
+    activeAccountMonthRows.forEach(({ account, month, year, totalSheets }) => {
+      const mk = monthYearKey(month, year)
+      if (!monthAverageSourceMap.has(mk)) {
+        monthAverageSourceMap.set(mk, { approvedSheets: 0, approvedAccounts: new Set() })
+      }
+      const monthStats = monthAverageSourceMap.get(mk)
+      monthStats.approvedSheets += toNumber(totalSheets)
+      monthStats.approvedAccounts.add(account)
+    })
+
+    let finalRawPoints = 0
+    sortedPairs.forEach(pair => {
+      const mk = monthYearKey(pair.month, pair.year)
+      const monthRawPoints = toNumber(monthRawPointsMap.get(mk) || 0)
+      const monthStats = monthAverageSourceMap.get(mk)
+      const monthApprovedSheets = toNumber(monthStats?.approvedSheets || 0)
+      const monthApprovedDmiCount = monthStats?.approvedAccounts?.size || 0
+      const monthAverageSheetsPerDmi = monthApprovedDmiCount > 0 ? (monthApprovedSheets / monthApprovedDmiCount) : 0
+
+      let monthRawPointsMultiplier = 1
+      if (monthAverageSheetsPerDmi < 15) monthRawPointsMultiplier = 0.15
+      else if (monthAverageSheetsPerDmi < 40) monthRawPointsMultiplier = 0.5
+
+      finalRawPoints += Math.round(monthRawPoints * monthRawPointsMultiplier)
+    })
+
+    // Retained as an aggregate indicator for UI/debug compatibility.
     let rawPointsMultiplier = 1
     if (averageSheetsPerDmi < 15) rawPointsMultiplier = 0.15
     else if (averageSheetsPerDmi < 40) rawPointsMultiplier = 0.5
-    const finalRawPoints = Math.round(totalRawPoints * rawPointsMultiplier)
     const newEnrolledPoints = newDmiCount * 10
 
     const tierMap = {
@@ -1247,6 +1326,7 @@ export default function PerformanceDashboard() {
     // Behavior
     const behaviorGoal = Math.round(
       sortedPairs.reduce((sum, pair) => {
+        const monthlyGoal = getMonthlyGoalFromQuarterColumns(goalRow, pair.month)
         const adjustedMonthlySheetGoal = monthlyGoal * getQuarterFactor(pair.month)
         const quarterlyEquivalentGoal = adjustedMonthlySheetGoal * 3
         const monthlyBehaviorGoal = quarterlyEquivalentGoal > 1800 ? adjustedMonthlySheetGoal * 0.2 : 120
@@ -1353,7 +1433,7 @@ export default function PerformanceDashboard() {
         ? 'all'
         : [...selectedMonths].sort((a, b) => Number(a) - Number(b)).join('-')
 
-      const cacheKey = `perf_detail_v7_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
+      const cacheKey = `perf_detail_v8_${selectedUser.employee_id}_${selectedFYStart}_${quarterKey}_${monthKey}`
 
       const { data, fromCache } = await cachedFetch(
         cacheKey,
