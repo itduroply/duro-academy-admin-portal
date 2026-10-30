@@ -131,6 +131,7 @@ function GoalMaster() {
   const [error, setError] = useState('')
 
   const [rows, setRows] = useState([])
+  const [employeeLookup, setEmployeeLookup] = useState([])
   const [search, setSearch] = useState('')
   const [designationFilter, setDesignationFilter] = useState('All')
   const [showDetailModal, setShowDetailModal] = useState(false)
@@ -193,13 +194,13 @@ function GoalMaster() {
       setLoading(true)
       setError('')
 
-      const [usersResult, goalsResult] = await Promise.all([
+      const [usersResult, goalsResult, designationsResult] = await Promise.all([
         cachedFetch(
           'goal_master_users_v1',
           async () => {
             const { data, error } = await supabase
               .from('users')
-              .select('employee_id, full_name, reporting_manager')
+              .select('employee_id, full_name, reporting_manager, designation_id')
               .not('employee_id', 'is', null)
 
             if (error) throw error
@@ -221,14 +222,52 @@ function GoalMaster() {
           },
           TTL.SHORT
         ),
+        cachedFetch(
+          'goal_master_designations_v1',
+          async () => {
+            const { data, error } = await supabase
+              .from('designations')
+              .select('id, designation_name')
+
+            if (error) throw error
+            return data || []
+          },
+          TTL.SHORT
+        ),
       ])
 
       if (!mountedRef.current) return
 
       const users = Array.isArray(usersResult?.data) ? usersResult.data : (Array.isArray(usersResult) ? usersResult : [])
       const goals = Array.isArray(goalsResult?.data) ? goalsResult.data : (Array.isArray(goalsResult) ? goalsResult : [])
+      const designationRows = Array.isArray(designationsResult?.data)
+        ? designationsResult.data
+        : (Array.isArray(designationsResult) ? designationsResult : [])
 
+      const designationNameById = new Map(designationRows.map(item => [String(item.id), asText(item.designation_name)]))
       const nameByCode = new Map(users.map(user => [asText(user.employee_id).toLowerCase(), asText(user.full_name)]))
+      const managerNameByCode = new Map(users.map(user => [asText(user.employee_id).toLowerCase(), asText(user.full_name)]))
+      const employeeLookup = users
+        .filter(user => asText(user.full_name) || asText(user.employee_id))
+        .map(user => {
+          const employeeCode = asText(user.employee_id)
+          const employeeName = asText(user.full_name)
+          const managerEmployeeId = asText(user.reporting_manager)
+          const managerName = asText(managerNameByCode.get(managerEmployeeId.toLowerCase()) || '')
+          const designationName = designationNameById.get(String(user.designation_id || '')) || ''
+          return {
+            lookupKey: `${employeeCode || employeeName || 'user'}-${employeeName || 'unknown'}`,
+            employee_code: employeeCode,
+            employee_name: employeeName,
+            reporting_manager: managerName,
+            reporting_manager_id: managerEmployeeId,
+            designation: designationName,
+          }
+        })
+        .filter(item => item.employee_name || item.employee_code)
+        .sort((a, b) => a.employee_name.localeCompare(b.employee_name) || a.employee_code.localeCompare(b.employee_code))
+
+      setEmployeeLookup(employeeLookup)
 
       const goalByCode = new Map()
       goals.forEach(goal => {
@@ -317,6 +356,62 @@ function GoalMaster() {
     }))
   }
 
+  const handleEmployeeLookupSelect = (lookupKey) => {
+    const selectedUser = employeeLookup.find(item => item.lookupKey === lookupKey)
+    if (!selectedUser) return
+
+    setFormData(prev => ({
+      ...prev,
+      employee_code: selectedUser.employee_code,
+      employee_name: selectedUser.employee_name,
+      reporting_manager: selectedUser.reporting_manager,
+      reporting_manager_id: selectedUser.reporting_manager_id,
+      designation: selectedUser.designation,
+    }))
+  }
+
+  const upsertGoalRecord = async (payload, overrideId = null) => {
+    const employeeCode = asText(payload.employee_code)
+    if (!employeeCode) throw new Error('Employee Code is required.')
+
+    const { data: existingRows, error: fetchError } = await supabase
+      .from('goals_master')
+      .select('id')
+      .eq('employee_code', employeeCode)
+      .limit(1)
+
+    if (fetchError) throw fetchError
+
+    const matchedExisting = Array.isArray(existingRows) && existingRows.length > 0 ? existingRows[0] : null
+
+    if (overrideId) {
+      const { error: updateError } = await supabase
+        .from('goals_master')
+        .update(payload)
+        .eq('id', overrideId)
+      if (updateError) throw updateError
+      return overrideId
+    }
+
+    if (matchedExisting) {
+      const { error: updateError } = await supabase
+        .from('goals_master')
+        .update(payload)
+        .eq('id', matchedExisting.id)
+      if (updateError) throw updateError
+      return matchedExisting.id
+    }
+
+    const { data: insertData, error: insertError } = await supabase
+      .from('goals_master')
+      .insert(payload)
+      .select('id')
+      .single()
+
+    if (insertError) throw insertError
+    return insertData?.id || null
+  }
+
   const handleAddRecord = async (event) => {
     event.preventDefault()
     setFormError('')
@@ -350,6 +445,10 @@ function GoalMaster() {
     try {
       setSaving(true)
 
+      const legacyMonthlyGoal = [q1Goal, q2Goal, q3Goal, q4Goal]
+        .filter(value => Number.isFinite(value) && value >= 0)
+        .at(-1) ?? 0
+
       const payload = {
         employee_code: employeeCode,
         employee_name: asText(formData.employee_name) || null,
@@ -360,22 +459,12 @@ function GoalMaster() {
         q2_monthly_goal: q2Goal,
         q3_monthly_goal: q3Goal,
         q4_monthly_goal: q4Goal,
+        monthly_sheet_goal: legacyMonthlyGoal,
         starting_date: startingDate || null,
         ending_date: endingDate || null,
       }
 
-      if (editingEmployeeCode && editingGoalId) {
-        const { error: updateError } = await supabase
-          .from('goals_master')
-          .update(payload)
-          .eq('id', editingGoalId)
-        if (updateError) throw updateError
-      } else {
-        const { error: upsertError } = await supabase
-          .from('goals_master')
-          .upsert(payload, { onConflict: 'employee_code' })
-        if (upsertError) throw upsertError
-      }
+      await upsertGoalRecord(payload, editingEmployeeCode && editingGoalId ? editingGoalId : null)
 
       await cacheDelete('goal_master_table_rows_v1')
       await loadData()
@@ -385,11 +474,7 @@ function GoalMaster() {
       setShowAddForm(false)
     } catch (err) {
       console.error('Error adding goal record:', err)
-      if (String(err?.message || '').toLowerCase().includes('duplicate')) {
-        setFormError('Could not save because this environment still has legacy UNIQUE(employee_code) on goals_master. Run the latest goals_master history migration and try again.')
-      } else {
-        setFormError(err.message || 'Failed to add record.')
-      }
+      setFormError(err.message || 'Failed to add record.')
     } finally {
       setSaving(false)
     }
@@ -512,6 +597,10 @@ function GoalMaster() {
           if (!employeeCode) return null
           if (![q1Goal, q2Goal, q3Goal, q4Goal].every(Number.isFinite)) return null
 
+          const legacyMonthlyGoal = [q1Goal, q2Goal, q3Goal, q4Goal]
+            .filter(value => Number.isFinite(value) && value >= 0)
+            .at(-1) ?? 0
+
           return {
             employee_code: employeeCode,
             employee_name: asText(pickCell(row, ['employee_name', 'employee name'])) || null,
@@ -522,6 +611,7 @@ function GoalMaster() {
             q2_monthly_goal: q2Goal,
             q3_monthly_goal: q3Goal,
             q4_monthly_goal: q4Goal,
+            monthly_sheet_goal: legacyMonthlyGoal,
             starting_date: parseDateInput(pickCell(row, ['starting_date', 'starting date'])) || null,
             ending_date: parseDateInput(pickCell(row, ['ending_date', 'ending date'])) || null,
           }
@@ -533,10 +623,7 @@ function GoalMaster() {
       }
 
       for (const row of payloadRows) {
-        const { error: upsertError } = await supabase
-          .from('goals_master')
-          .upsert(row, { onConflict: 'employee_code' })
-        if (upsertError) throw upsertError
+        await upsertGoalRecord(row)
       }
 
       await cacheDelete('goal_master_table_rows_v1')
@@ -894,121 +981,145 @@ function GoalMaster() {
             </div>
 
             <form className="gm-add-form" onSubmit={handleAddRecord}>
-              <div className="gm-field">
-                <label>Employee Code *</label>
-                <input
-                  value={formData.employee_code}
-                  onChange={(event) => handleFormChange('employee_code', event.target.value)}
-                  placeholder="e.g. D10234"
-                  disabled={Boolean(editingEmployeeCode)}
-                  required
-                />
+              <div className="gm-form-row">
+                <div className="gm-field">
+                  <label>Employee Name Lookup</label>
+                  <select
+                    value={employeeLookup.find(item => item.employee_code === formData.employee_code)?.lookupKey || ''}
+                    onChange={(event) => handleEmployeeLookupSelect(event.target.value)}
+                    disabled={Boolean(editingEmployeeCode)}
+                  >
+                    <option value="">Select employee</option>
+                    {employeeLookup.map(user => (
+                      <option key={user.lookupKey} value={user.lookupKey}>
+                        {user.employee_name || 'Unknown'}{user.employee_code ? ` (${user.employee_code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="gm-field">
+                  <label>Employee Code *</label>
+                  <input
+                    value={formData.employee_code}
+                    onChange={(event) => handleFormChange('employee_code', event.target.value)}
+                    placeholder="e.g. D10234"
+                    disabled={Boolean(editingEmployeeCode)}
+                    required
+                  />
+                </div>
+
+                <div className="gm-field">
+                  <label>Employee Name</label>
+                  <input
+                    value={formData.employee_name}
+                    onChange={(event) => handleFormChange('employee_name', event.target.value)}
+                    placeholder="Employee full name"
+                  />
+                </div>
               </div>
 
-              <div className="gm-field">
-                <label>Employee Name</label>
-                <input
-                  value={formData.employee_name}
-                  onChange={(event) => handleFormChange('employee_name', event.target.value)}
-                  placeholder="Employee full name"
-                />
+              <div className="gm-form-row">
+                <div className="gm-field">
+                  <label>Reporting Manager</label>
+                  <input
+                    value={formData.reporting_manager}
+                    onChange={(event) => handleFormChange('reporting_manager', event.target.value)}
+                    placeholder="Manager name"
+                  />
+                </div>
+
+                <div className="gm-field">
+                  <label>Reporting Manager ID</label>
+                  <input
+                    value={formData.reporting_manager_id}
+                    onChange={(event) => handleFormChange('reporting_manager_id', event.target.value)}
+                    placeholder="e.g. S10008"
+                  />
+                </div>
+
+                <div className="gm-field">
+                  <label>Designation</label>
+                  <input
+                    value={formData.designation}
+                    onChange={(event) => handleFormChange('designation', event.target.value)}
+                    placeholder="ASM / DGO"
+                  />
+                </div>
               </div>
 
-              <div className="gm-field">
-                <label>Reporting Manager</label>
-                <input
-                  value={formData.reporting_manager}
-                  onChange={(event) => handleFormChange('reporting_manager', event.target.value)}
-                  placeholder="Manager name"
-                />
+              <div className="gm-form-row">
+                <div className="gm-field">
+                  <label>Q1 Monthly Goal *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={formData.q1_monthly_goal}
+                    onChange={(event) => handleFormChange('q1_monthly_goal', event.target.value)}
+                    placeholder="e.g. 500"
+                    required
+                  />
+                </div>
+
+                <div className="gm-field">
+                  <label>Q2 Monthly Goal *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={formData.q2_monthly_goal}
+                    onChange={(event) => handleFormChange('q2_monthly_goal', event.target.value)}
+                    placeholder="e.g. 500"
+                    required
+                  />
+                </div>
+
+                <div className="gm-field">
+                  <label>Q3 Monthly Goal *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={formData.q3_monthly_goal}
+                    onChange={(event) => handleFormChange('q3_monthly_goal', event.target.value)}
+                    placeholder="e.g. 500"
+                    required
+                  />
+                </div>
               </div>
 
-              <div className="gm-field">
-                <label>Reporting Manager ID</label>
-                <input
-                  value={formData.reporting_manager_id}
-                  onChange={(event) => handleFormChange('reporting_manager_id', event.target.value)}
-                  placeholder="e.g. S10008"
-                />
-              </div>
+              <div className="gm-form-row">
+                <div className="gm-field">
+                  <label>Q4 Monthly Goal *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={formData.q4_monthly_goal}
+                    onChange={(event) => handleFormChange('q4_monthly_goal', event.target.value)}
+                    placeholder="e.g. 500"
+                    required
+                  />
+                </div>
 
-              <div className="gm-field">
-                <label>Designation</label>
-                <input
-                  value={formData.designation}
-                  onChange={(event) => handleFormChange('designation', event.target.value)}
-                  placeholder="ASM / DGO"
-                />
-              </div>
+                <div className="gm-field">
+                  <label>Starting Date</label>
+                  <input
+                    type="date"
+                    value={formData.starting_date}
+                    onChange={(event) => handleFormChange('starting_date', event.target.value)}
+                  />
+                </div>
 
-              <div className="gm-field">
-                <label>Q1 Monthly Goal *</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={formData.q1_monthly_goal}
-                  onChange={(event) => handleFormChange('q1_monthly_goal', event.target.value)}
-                  placeholder="e.g. 500"
-                  required
-                />
-              </div>
-
-              <div className="gm-field">
-                <label>Q2 Monthly Goal *</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={formData.q2_monthly_goal}
-                  onChange={(event) => handleFormChange('q2_monthly_goal', event.target.value)}
-                  placeholder="e.g. 500"
-                  required
-                />
-              </div>
-
-              <div className="gm-field">
-                <label>Q3 Monthly Goal *</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={formData.q3_monthly_goal}
-                  onChange={(event) => handleFormChange('q3_monthly_goal', event.target.value)}
-                  placeholder="e.g. 500"
-                  required
-                />
-              </div>
-
-              <div className="gm-field">
-                <label>Q4 Monthly Goal *</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={formData.q4_monthly_goal}
-                  onChange={(event) => handleFormChange('q4_monthly_goal', event.target.value)}
-                  placeholder="e.g. 500"
-                  required
-                />
-              </div>
-
-              <div className="gm-field">
-                <label>Starting Date</label>
-                <input
-                  type="date"
-                  value={formData.starting_date}
-                  onChange={(event) => handleFormChange('starting_date', event.target.value)}
-                />
-              </div>
-
-              <div className="gm-field">
-                <label>Ending Date</label>
-                <input
-                  type="date"
-                  value={formData.ending_date}
-                  onChange={(event) => handleFormChange('ending_date', event.target.value)}
-                />
+                <div className="gm-field">
+                  <label>Ending Date</label>
+                  <input
+                    type="date"
+                    value={formData.ending_date}
+                    onChange={(event) => handleFormChange('ending_date', event.target.value)}
+                  />
+                </div>
               </div>
 
               <div className="gm-form-actions">
